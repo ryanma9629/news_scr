@@ -194,30 +194,7 @@ Passage:
 
         return [tag.model_dump(mode="json") for tag in tags]  # type: ignore
     
-    async def _tag_batch_resilient(self, docs: List[Document]) -> List[dict]:
-        """
-        Tag multiple documents with resilient error handling - supports partial success.
-        
-        Args:
-            docs: List of documents to analyze
-            
-        Returns:
-            List of dictionaries containing crime_type and probability for each document
-        """
-        if not docs:
-            logger.warning("Empty document list provided")
-            return []
-            
-        results = []
-        for doc in docs:
-            try:
-                result = await self._tag_single(doc)
-                results.append(result)
-            except Exception as e:
-                logger.error(f"Failed to process document: {e}")
-                results.append({"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY})
-        return results
-
+    
     async def tagging_combine(
         self,
         docs: List[Document],
