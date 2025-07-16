@@ -52,15 +52,21 @@ class ApifyCrawler(Crawler):
 
 if __name__ == "__main__":
     import asyncio
+    import sys
+    
+    # 在Windows上设置事件循环策略以避免ProactorBasePipeTransport错误
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    apify_crawler = ApifyCrawler()
-    docs = asyncio.run(
-        apify_crawler.get(
+    async def main():
+        apify_crawler = ApifyCrawler()
+        docs = await apify_crawler.get(
             [
                 "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp",
                 "https://www.ebsco.com/research-starters/technology/theranos"
             ]
         )
-    )
-    for doc in docs:
-        print(doc.page_content, doc.metadata.get("source", ""))
+        for doc in docs:
+            print(doc.page_content, doc.metadata.get("source", ""))
+    
+    asyncio.run(main())
