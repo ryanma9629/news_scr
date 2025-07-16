@@ -15,7 +15,12 @@ function initializeApp() {
     
     // Bind other button events
     $('#btn_crawler').on('click', function() {
-        // Use the getNewsContent function for Get Content functionality
+        // Get Content button just opens the modal, no immediate action
+        // The actual content fetching will be triggered by the Submit button in the modal
+    });
+    
+    $('#btn_crawler_submit').on('click', function() {
+        // This is the Submit button in the crawler modal
         getNewsContent();
     });
     
@@ -189,7 +194,7 @@ function hideSearchResults() {
     $('#btn_crawler, #btn_tagging, #btn_summary, #btn_qa').addClass('disabled');
 }
 
-function showAlert(message, type) {
+function showAlert(message, type, autoHide = true) {
     const alertHtml = `
         <div class="alert alert-${type} alert-dismissible fade show" role="alert">
             ${message}
@@ -199,12 +204,17 @@ function showAlert(message, type) {
     
     $('#div_ajax_info').html(alertHtml).show();
     
-    // Auto-hide success and info messages after 5 seconds
-    if (type === 'success' || type === 'info') {
+    // Auto-hide success and info messages after 5 seconds, unless autoHide is false
+    if (autoHide && (type === 'success' || type === 'info')) {
         setTimeout(function() {
             $('#div_ajax_info').fadeOut();
         }, 5000);
     }
+}
+
+function hideAlert() {
+    console.log('hideAlert called');
+    $('#div_ajax_info').hide();
 }
 
 function escapeHtml(text) {
@@ -239,12 +249,20 @@ function getNewsContent() {
         return;
     }
 
-    // 显示开始获取内容的提示
-    showAlert('开始获取新闻全文内容，请稍候...', 'info');
+    // 显示带有spinner的获取内容提示，不自动隐藏
+    showAlert(`
+        <div class="d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm me-2" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            正在获取新闻全文内容，请稍候...
+        </div>
+    `, 'info', false);
 
     // 设置所有状态为获取中
     $('.content-status').each(function() {
-        $(this).html('<i class="bi bi-hourglass-split text-warning" title="获取中"></i>');    });
+        $(this).html('<i class="bi bi-hourglass-split text-warning" title="获取中"></i>');
+    });
     
     // 获取所有新闻URL并创建映射
     const urls = [];
@@ -269,15 +287,22 @@ function getNewsContent() {
         }),
         timeout: 120000, // 2分钟超时
         success: function(response) {
+            console.log('AJAX success callback triggered');
             handleGetContentSuccess(response, urlToIndex);
         },
         error: function(xhr, status, error) {
+            console.log('AJAX error callback triggered');
             handleGetContentError(xhr, status, error);
         }
     });
 }
 
 function handleGetContentSuccess(response, urlToIndex) {
+    console.log('handleGetContentSuccess called');
+    // 先隐藏加载消息
+    hideAlert();
+    console.log('Loading alert hidden');
+    
     if (response.success && response.results) {
         let successCount = 0;
         let failCount = 0;
@@ -325,6 +350,11 @@ function handleGetContentSuccess(response, urlToIndex) {
 }
 
 function handleGetContentError(xhr, status, error) {
+    console.log('handleGetContentError called');
+    // 先隐藏加载消息
+    hideAlert();
+    console.log('Loading alert hidden');
+    
     let errorMessage = '获取内容失败，请稍后重试';
     
     if (xhr.responseJSON && xhr.responseJSON.detail) {
