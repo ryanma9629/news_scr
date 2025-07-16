@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import List, Optional, TypedDict
 
 from dotenv import load_dotenv
@@ -15,32 +14,25 @@ from langgraph.graph import START, StateGraph
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
+# Configuration constants
+DEFAULT_RETRIEVAL_COUNT = 3
+DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_OVERLAP = 100
+DEFAULT_TEMPERATURE = 0.0
+DEFAULT_DOC_SEPARATOR = "\n\n"
 
-# Define State type at module level
-class QAState(TypedDict):
-    question: str
-    context: List[Document]
-    answer: str
+# Error messages
+NO_CONTEXT_MESSAGE = "I don't have enough information to answer this question."
+GENERATION_ERROR_MESSAGE = "I'm unable to generate an answer at this time."
+TECHNICAL_ERROR_MESSAGE = "I'm unable to process your question due to a technical issue. Please try again."
 
-
-@dataclass
-class QAConfig:
-    """Configuration class for QA system parameters."""
-
-    # Retrieval configuration
-    retrieval_count: int = 3
-    chunk_size: int = 1000
-    chunk_overlap: int = 100
-
-    # Generation configuration
-    temperature: float = 0.0
-    max_tokens: Optional[int] = None
-
-    # Prompt templates
-    system_prompt: str = """Use the following pieces of context to answer the question at the end.
+# Prompt templates
+SYSTEM_PROMPT_TEMPLATE = """Use the following pieces of context to answer the question at the end.
 If you don't know the answer, just say that you don't know, don't try to make up an answer.
 Keep the answer as concise as possible. Make your response in {lang}.
 ------------
@@ -52,13 +44,12 @@ Question:
 ------------
 """
 
-    # Document processing
-    doc_separator: str = "\n\n"
 
-    # Error messages
-    no_context_message: str = "I don't have enough information to answer this question."
-    generation_error_message: str = "I'm unable to generate an answer at this time."
-    technical_error_message: str = "I'm unable to process your question due to a technical issue. Please try again."
+# Define State type at module level
+class QAState(TypedDict):
+    question: str
+    context: List[Document]
+    answer: str
 
 
 class QA(ABC):
@@ -108,7 +99,7 @@ class QAWithContext(QA):
     """
 
     def __init__(
-        self, llm: BaseChatModel, emb: Embeddings, config: Optional[QAConfig] = None
+        self, llm: BaseChatModel, emb: Embeddings
     ) -> None:
         """
         Initialize the context-based QA system.
@@ -116,10 +107,8 @@ class QAWithContext(QA):
         Args:
             llm: The language model for generating responses
             emb: The embeddings model for vector operations
-            config: Configuration object for QA parameters
         """
         super().__init__(llm, emb)
-        self.config = config or QAConfig()
         self._qa_prompt = self._create_qa_prompt()
 
     def _create_qa_prompt(self) -> ChatPromptTemplate:
@@ -129,7 +118,7 @@ class QAWithContext(QA):
         Returns:
             ChatPromptTemplate: The configured prompt template
         """
-        return ChatPromptTemplate.from_messages([("system", self.config.system_prompt)])
+        return ChatPromptTemplate.from_messages([("system", SYSTEM_PROMPT_TEMPLATE)])
 
     async def _setup_vectordb(
         self, docs: Optional[List[Document]], vectordb: Optional[VectorStore]
@@ -177,7 +166,7 @@ class QAWithContext(QA):
             Function that retrieves relevant documents
         """
         if k is None:
-            k = self.config.retrieval_count
+            k = DEFAULT_RETRIEVAL_COUNT
 
         async def retrieve(state: QAState):
             try:
@@ -218,9 +207,9 @@ class QAWithContext(QA):
             try:
                 if not state["context"]:
                     logger.warning("No context available for generation")
-                    return {"answer": self.config.no_context_message}
+                    return {"answer": NO_CONTEXT_MESSAGE}
 
-                docs_content = self.config.doc_separator.join(
+                docs_content = DEFAULT_DOC_SEPARATOR.join(
                     doc.page_content for doc in state["context"]
                 )
                 messages = qa_prompt.invoke(
@@ -243,7 +232,7 @@ class QAWithContext(QA):
                 return {"answer": response.content}
             except Exception as e:
                 logger.error(f"Error during answer generation: {e}")
-                return {"answer": self.config.generation_error_message}
+                return {"answer": GENERATION_ERROR_MESSAGE}
 
         return generate
 
@@ -276,7 +265,7 @@ class QAWithContext(QA):
         logger.info(f"Processing query: {query[:50]}...")
 
         if k is None:
-            k = self.config.retrieval_count
+            k = DEFAULT_RETRIEVAL_COUNT
 
         try:
             # Set up vector database
@@ -309,39 +298,47 @@ class QAWithContext(QA):
             return {
                 "question": query,
                 "context": [],
-                "answer": self.config.technical_error_message,
+                "answer": TECHNICAL_ERROR_MESSAGE,
             }
 
 
 if __name__ == "__main__":
     import asyncio
+    import sys
 
     from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
     from crawler import ApifyCrawler
 
-    llm = AzureChatOpenAI(
-        azure_deployment="gpt-4o-mini",
-        model="gpt-4o-mini",
-        temperature=0,
-    )
-    emb = AzureOpenAIEmbeddings(azure_deployment="text-embedding-3-small")
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    apify_crawler = ApifyCrawler()
-    doc = asyncio.run(
-        apify_crawler.get(
-            [
-                "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp"
-            ]
+    def main():
+        """Main function to demonstrate the QA system functionality."""
+        llm = AzureChatOpenAI(
+            azure_deployment="gpt-4o-mini",
+            model="gpt-4o-mini",
+            temperature=0,
         )
-    )
+        emb = AzureOpenAIEmbeddings(azure_deployment="text-embedding-3-small")
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-    all_chunks = text_splitter.split_documents(doc)
+        apify_crawler = ApifyCrawler()
+        doc = asyncio.run(
+            apify_crawler.get(
+                [
+                    "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp"
+                ]
+            )
+        )
 
-    qa = QAWithContext(llm, emb)
-    response = asyncio.run(
-        qa.query("Why Theranos closed in 2018?", lang="Chinese", docs=all_chunks)
-    )
-    print(response["answer"])
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        all_chunks = text_splitter.split_documents(doc)
+
+        qa = QAWithContext(llm, emb)
+        response = asyncio.run(
+            qa.query("Why Theranos closed in 2018?", lang="Chinese", docs=all_chunks)
+        )
+        print(response["answer"])
+
+    main()

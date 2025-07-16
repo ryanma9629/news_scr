@@ -1,7 +1,7 @@
+import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import List, Optional
-import logging
 from contextlib import contextmanager
 
 from pymongo import MongoClient
@@ -13,33 +13,81 @@ DEFAULT_CONTENTS_COLLECTION = "web_contents"
 DEFAULT_TAGS_COLLECTION = "fc_tags"
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 class DocStore(ABC):
+    """
+    Abstract base class for document storage systems.
+    
+    This class provides a common interface for different document storage implementations,
+    defining the basic structure and required methods for content and tag management.
+    """
+    
     def __init__(self, company_name: str, lang: str) -> None:
+        """Initialize the document store.
+        
+        Args:
+            company_name: Name of the company
+            lang: Language code
+        """
         self.company_name = company_name
         self.lang = lang
 
     @abstractmethod
     def load_contents(self, urls: List[str]) -> List[dict]:
+        """Load document contents from storage.
+        
+        Args:
+            urls: List of URLs to load contents for
+            
+        Returns:
+            List of dictionaries containing document contents
+        """
         raise NotImplementedError
 
     @abstractmethod
     def save_contents(self, contents: List[dict]) -> None:
+        """Save document contents to storage.
+        
+        Args:
+            contents: List of dictionaries containing document contents
+        """
         raise NotImplementedError
 
     @abstractmethod
     def load_tags(self, urls: List[str]) -> List[dict]:
+        """Load document tags from storage.
+        
+        Args:
+            urls: List of URLs to load tags for
+            
+        Returns:
+            List of dictionaries containing document tags
+        """
         raise NotImplementedError
 
     @abstractmethod
     def save_tags(self, tags: List[dict]) -> None:
+        """Save document tags to storage.
+        
+        Args:
+            tags: List of dictionaries containing document tags
+        """
         raise NotImplementedError
 
 
 class MongoStore(DocStore):
+    """
+    MongoDB implementation of document storage.
+    
+    This class provides document storage functionality using MongoDB,
+    with support for content management and tag storage operations.
+    """
+    
     def __init__(
         self,
         company_name: str,
@@ -47,6 +95,14 @@ class MongoStore(DocStore):
         client: Optional[MongoClient] = None,
         db: str = DEFAULT_DB_NAME,
     ) -> None:
+        """Initialize MongoDB document store.
+        
+        Args:
+            company_name: Name of the company
+            lang: Language code
+            client: Optional MongoDB client instance
+            db: Database name to use
+        """
         super().__init__(company_name, lang)
         self.client = client or MongoClient()
         self.db = db
@@ -54,7 +110,18 @@ class MongoStore(DocStore):
 
     @contextmanager
     def _get_collection(self, collection: str):
-        """Context manager for safely accessing collections"""
+        """Context manager for safely accessing MongoDB collections.
+        
+        Args:
+            collection: Name of the collection to access
+            
+        Yields:
+            MongoDB collection object
+            
+        Raises:
+            PyMongoError: If database operation fails
+            Exception: If unexpected error occurs
+        """
         try:
             col = self.client[self.db][collection]
             yield col
@@ -71,6 +138,19 @@ class MongoStore(DocStore):
         data_within_days: int = 0,
         collection: str = DEFAULT_CONTENTS_COLLECTION,
     ) -> List[dict]:
+        """Load document contents from MongoDB.
+        
+        Args:
+            urls: List of URLs to load contents for
+            data_within_days: Number of days to look back for data (0 for all)
+            collection: MongoDB collection name to query
+            
+        Returns:
+            List of dictionaries containing document contents
+            
+        Raises:
+            Exception: If database operation fails
+        """
         if not urls:
             logger.warning("Empty URLs list provided to load_contents")
             return []
@@ -103,6 +183,15 @@ class MongoStore(DocStore):
     def save_contents(
         self, contents: List[dict], collection: str = DEFAULT_CONTENTS_COLLECTION
     ) -> None:
+        """Save document contents to MongoDB.
+        
+        Args:
+            contents: List of dictionaries containing document contents
+            collection: MongoDB collection name to save to
+            
+        Raises:
+            Exception: If database operation fails
+        """
         if not contents:
             logger.warning("Empty contents list provided to save_contents")
             return
@@ -146,6 +235,21 @@ class MongoStore(DocStore):
         data_within_days: int = 0,
         collection: str = DEFAULT_TAGS_COLLECTION,
     ) -> List[dict]:
+        """Load document tags from MongoDB.
+        
+        Args:
+            urls: List of URLs to load tags for
+            method: Tagging method used
+            llm_name: Name of the LLM used for tagging
+            data_within_days: Number of days to look back for data (0 for all)
+            collection: MongoDB collection name to query
+            
+        Returns:
+            List of dictionaries containing document tags
+            
+        Raises:
+            Exception: If database operation fails
+        """
         if not urls:
             logger.warning("Empty URLs list provided to load_tags")
             return []
@@ -180,6 +284,17 @@ class MongoStore(DocStore):
     def save_tags(
         self, tags: List[dict], method: str, llm_name: str, collection: str = DEFAULT_TAGS_COLLECTION
     ) -> None:
+        """Save document tags to MongoDB.
+        
+        Args:
+            tags: List of dictionaries containing document tags
+            method: Tagging method used
+            llm_name: Name of the LLM used for tagging
+            collection: MongoDB collection name to save to
+            
+        Raises:
+            Exception: If database operation fails
+        """
         if not tags:
             logger.warning("Empty tags list provided to save_tags")
             return
@@ -222,7 +337,11 @@ class MongoStore(DocStore):
             raise
 
     def close(self) -> None:
-        """Close database connection"""
+        """Close the MongoDB database connection.
+        
+        Raises:
+            Exception: If error occurs while closing connection
+        """
         try:
             self.client.close()
             logger.info("Database connection closed")
@@ -230,7 +349,9 @@ class MongoStore(DocStore):
             logger.error(f"Error closing database connection: {e}")
 
     def __enter__(self):
+        """Context manager entry point."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit point."""
         self.close()

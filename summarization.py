@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import operator
 from abc import ABC, abstractmethod
@@ -81,19 +82,43 @@ DEFAULT_MAX_TOKENS = 2000
 
 
 class Summarization(ABC):
+    """
+    Abstract base class for document summarization systems.
+    
+    This class provides a common interface for different summarization implementations,
+    defining the basic structure and required methods for document summarization.
+    """
+    
     def __init__(self, llm: BaseChatModel) -> None:
+        """Initialize the summarization system.
+        
+        Args:
+            llm: Language model for generating summaries
+        """
         super().__init__()
         self.llm = llm
 
     @abstractmethod
     def summarize(self, docs: List[Document], lang: str, max_words: int) -> str:
+        """Generate summary for given documents.
+        
+        Args:
+            docs: List of documents to summarize
+            lang: Target language for the summary
+            max_words: Maximum number of words in the summary
+            
+        Returns:
+            Generated summary text
+            
+        Raises:
+            NotImplementedError: Must be implemented by subclasses
+        """
         raise NotImplementedError
 
     async def _execute_graph_with_error_handling(
         self, graph, initial_state, method_name: str, summary_key: str = "summary"
     ) -> str:
-        """
-        Common error handling wrapper for graph execution
+        """Execute graph with comprehensive error handling.
 
         Args:
             graph: Compiled StateGraph to execute
@@ -134,32 +159,73 @@ class Summarization(ABC):
 
     @abstractmethod
     def _create_chains(self, lang: str, max_words: int) -> tuple:
-        """Create and return configured chains for summarization."""
+        """Create and return configured chains for summarization.
+        
+        Args:
+            lang: Target language for the summary
+            max_words: Maximum number of words in the summary
+            
+        Returns:
+            Tuple of configured chains
+        """
         raise NotImplementedError
 
     @abstractmethod
     def _create_graph_functions(self, *args, **kwargs) -> tuple:
-        """Create and return all graph node functions."""
+        """Create and return all graph node functions.
+        
+        Args:
+            *args: Variable arguments
+            **kwargs: Keyword arguments
+            
+        Returns:
+            Tuple of graph node functions
+        """
         raise NotImplementedError
 
     @abstractmethod
     def _create_initial_state(self, docs: List[Document]) -> dict:
-        """Create initial state for the graph."""
+        """Create initial state for the graph.
+        
+        Args:
+            docs: List of documents to summarize
+            
+        Returns:
+            Initial state dictionary
+        """
         raise NotImplementedError
 
     @abstractmethod
     def _build_graph(self, *graph_functions):
-        """Build and return the state graph."""
+        """Build and return the state graph.
+        
+        Args:
+            *graph_functions: Graph node functions
+            
+        Returns:
+            Compiled state graph
+        """
         raise NotImplementedError
 
 
 class MapReduceSummarization(Summarization):
+    """
+    Map-Reduce based document summarization system.
+    
+    This class provides document summarization using a Map-Reduce approach,
+    processing documents in parallel and then reducing results to a final summary.
+    """
+    
     def __init__(self, llm: BaseChatModel) -> None:
+        """Initialize the Map-Reduce summarization system.
+        
+        Args:
+            llm: Language model for generating summaries
+        """
         super().__init__(llm)
         self.max_words = DEFAULT_MAX_WORDS
         self.max_token = DEFAULT_MAX_TOKENS
 
-        # Pre-create prompt templates and chains
         self.map_prompt = ChatPromptTemplate.from_messages(
             [("system", MAP_PROMPT_TEMPLATE)]
         )
@@ -168,7 +234,15 @@ class MapReduceSummarization(Summarization):
         )
 
     def _create_chains(self, lang: str, max_words: int) -> tuple:
-        """Create and return configured chains for summarization."""
+        """Create and return configured chains for Map-Reduce summarization.
+        
+        Args:
+            lang: Target language for the summary
+            max_words: Maximum number of words in the summary
+            
+        Returns:
+            Tuple of (map_chain, reduce_chain)
+        """
         map_prompt = self.map_prompt.partial(lang=lang)
         map_chain = map_prompt | self.llm | StrOutputParser()
 
@@ -178,12 +252,23 @@ class MapReduceSummarization(Summarization):
         return map_chain, reduce_chain
 
     def _create_graph_functions(self, map_chain, reduce_chain, max_token: int):
-        """Create and return all graph node functions."""
+        """Create and return all graph node functions for Map-Reduce.
+        
+        Args:
+            map_chain: Chain for mapping phase
+            reduce_chain: Chain for reduce phase
+            max_token: Maximum token count
+            
+        Returns:
+            Tuple of graph node functions
+        """
 
         def len_func(documents: List[Document]) -> int:
+            """Calculate total tokens for a list of documents."""
             return sum(self.llm.get_num_tokens(doc.page_content) for doc in documents)
 
         async def generate_summary(state: MapReduceSummaryState) -> dict:
+            """Generate summary for a single document."""
             try:
                 logger.debug(
                     f"Generating individual document summary, content length: {len(state['content'])}"
@@ -198,12 +283,14 @@ class MapReduceSummarization(Summarization):
                 raise
 
         def map_summaries(state: MapReduceOverallState):
+            """Map function to distribute documents for summarization."""
             return [
                 Send("generate_summary", {"content": content})
                 for content in state["contents"]
             ]
 
         def collect_summaries(state: MapReduceOverallState) -> dict:
+            """Collect individual summaries into documents."""
             return {
                 "collapsed_summaries": [
                     Document(summary) for summary in state["summaries"]
@@ -211,6 +298,7 @@ class MapReduceSummarization(Summarization):
             }
 
         async def collapse_summaries(state: MapReduceOverallState) -> dict:
+            """Collapse multiple summaries into fewer summaries."""
             try:
                 logger.debug(
                     f"Starting summary collapse, current summaries: {len(state['collapsed_summaries'])}"
@@ -233,6 +321,7 @@ class MapReduceSummarization(Summarization):
         def should_collapse(
             state: MapReduceOverallState,
         ) -> Literal["collapse_summaries", "generate_final_summary"]:
+            """Determine if further collapse is needed."""
             num_tokens = len_func(state["collapsed_summaries"])
             if num_tokens > max_token:
                 return "collapse_summaries"
@@ -240,6 +329,7 @@ class MapReduceSummarization(Summarization):
                 return "generate_final_summary"
 
         async def generate_final_summary(state: MapReduceOverallState) -> dict:
+            """Generate the final summary from collapsed summaries."""
             collapse_summaries = "\n\n".join(
                 doc.page_content for doc in state["collapsed_summaries"]
             )
@@ -256,7 +346,14 @@ class MapReduceSummarization(Summarization):
         )
 
     def _create_initial_state(self, docs: List[Document]) -> MapReduceOverallState:
-        """Create initial state for the Map-Reduce graph."""
+        """Create initial state for the Map-Reduce graph.
+        
+        Args:
+            docs: List of documents to summarize
+            
+        Returns:
+            Initial state dictionary for Map-Reduce
+        """
         return {
             "contents": [doc.page_content for doc in docs],
             "summaries": [],
@@ -273,7 +370,19 @@ class MapReduceSummarization(Summarization):
         should_collapse,
         generate_final_summary,
     ):
-        """Build and return the Map-Reduce state graph."""
+        """Build and return the Map-Reduce state graph.
+        
+        Args:
+            generate_summary: Function to generate individual summaries
+            map_summaries: Function to map documents to summary tasks
+            collect_summaries: Function to collect individual summaries
+            collapse_summaries: Function to collapse multiple summaries
+            should_collapse: Function to determine if collapse is needed
+            generate_final_summary: Function to generate final summary
+            
+        Returns:
+            Compiled state graph
+        """
         graph_builder = StateGraph(MapReduceOverallState)
         graph_builder.add_node("generate_summary", generate_summary)  # type: ignore
         graph_builder.add_node("collect_summaries", collect_summaries)
@@ -295,14 +404,13 @@ class MapReduceSummarization(Summarization):
         max_words: int = DEFAULT_MAX_WORDS,
         max_token: int = DEFAULT_MAX_TOKENS,
     ) -> str:
-        """
-        Generate summary using Map-Reduce method
+        """Generate summary using Map-Reduce method.
 
         Args:
             docs: List of documents to summarize
-            lang: Target language
-            max_words: Maximum word count
-            max_token: Maximum token count
+            lang: Target language for the summary
+            max_words: Maximum number of words in the summary
+            max_token: Maximum token count for intermediate processing
 
         Returns:
             Generated summary text
@@ -311,36 +419,47 @@ class MapReduceSummarization(Summarization):
             f"Starting Map-Reduce summarization, docs: {len(docs)}, lang: {lang}, max_words: {max_words}"
         )
 
-        # Create chains with specific parameters
         map_chain, reduce_chain = self._create_chains(lang, max_words)
-
-        # Create graph functions
         graph_functions = self._create_graph_functions(
             map_chain, reduce_chain, max_token
         )
-
-        # Build graph
         graph = self._build_graph(*graph_functions)
-
-        # Create initial state
         initial_state = self._create_initial_state(docs)
 
-        # Execute graph with error handling
         return await self._execute_graph_with_error_handling(
             graph, initial_state, "Map-Reduce summarization", "final_summary"
         )
 
 
 class RefinementSummarization(Summarization):
+    """
+    Iterative refinement based document summarization system.
+    
+    This class provides document summarization using an iterative refinement approach,
+    progressively improving the summary by incorporating additional documents.
+    """
+    
     def __init__(self, llm: BaseChatModel) -> None:
+        """Initialize the refinement summarization system.
+        
+        Args:
+            llm: Language model for generating summaries
+        """
         super().__init__(llm)
 
-        # Pre-create prompt templates
         self.initial_prompt = ChatPromptTemplate([("human", INITIAL_SUMMARY_TEMPLATE)])
         self.refine_prompt = ChatPromptTemplate([("human", REFINE_SUMMARY_TEMPLATE)])
 
     def _create_chains(self, lang: str, max_words: int) -> tuple:
-        """Create and return configured chains for summarization."""
+        """Create and return configured chains for refinement summarization.
+        
+        Args:
+            lang: Target language for the summary
+            max_words: Maximum number of words in the summary
+            
+        Returns:
+            Tuple of (initial_chain, refine_chain)
+        """
         initial_prompt = self.initial_prompt.partial(lang=lang, max_words=max_words)
         initial_chain = initial_prompt | self.llm | StrOutputParser()
 
@@ -350,11 +469,20 @@ class RefinementSummarization(Summarization):
         return initial_chain, refine_chain
 
     def _create_graph_functions(self, initial_chain, refine_chain):
-        """Create and return all graph node functions."""
+        """Create and return all graph node functions for refinement.
+        
+        Args:
+            initial_chain: Chain for initial summary generation
+            refine_chain: Chain for summary refinement
+            
+        Returns:
+            Tuple of graph node functions
+        """
 
         async def generate_initial_summary(
             state: RefinementState, config: RunnableConfig
         ) -> dict:
+            """Generate initial summary from the first document."""
             try:
                 logger.debug(
                     f"Generating initial summary, content length: {len(state['contents'][0])}"
@@ -374,6 +502,7 @@ class RefinementSummarization(Summarization):
         async def refine_summary(
             state: RefinementState, config: RunnableConfig
         ) -> dict:
+            """Refine the existing summary with the next document."""
             try:
                 content = state["contents"][state["index"]]
                 logger.debug(
@@ -395,6 +524,7 @@ class RefinementSummarization(Summarization):
                 raise
 
         def should_refine(state: RefinementState):
+            """Determine if further refinement is needed."""
             if state["index"] >= len(state["contents"]):
                 return END
             else:
@@ -403,7 +533,14 @@ class RefinementSummarization(Summarization):
         return generate_initial_summary, refine_summary, should_refine
 
     def _create_initial_state(self, docs: List[Document]) -> RefinementState:
-        """Create initial state for the Refinement graph."""
+        """Create initial state for the Refinement graph.
+        
+        Args:
+            docs: List of documents to summarize
+            
+        Returns:
+            Initial state dictionary for refinement
+        """
         return {
             "contents": [doc.page_content for doc in docs],
             "index": 0,
@@ -411,7 +548,16 @@ class RefinementSummarization(Summarization):
         }
 
     def _build_graph(self, generate_initial_summary, refine_summary, should_refine):
-        """Build and return the Refinement state graph."""
+        """Build and return the Refinement state graph.
+        
+        Args:
+            generate_initial_summary: Function to generate initial summary
+            refine_summary: Function to refine the summary
+            should_refine: Function to determine if refinement should continue
+            
+        Returns:
+            Compiled state graph
+        """
         graph_builder = StateGraph(RefinementState)
         graph_builder.add_node("generate_initial_summary", generate_initial_summary)
         graph_builder.add_node("refine_summary", refine_summary)
@@ -425,13 +571,12 @@ class RefinementSummarization(Summarization):
     async def summarize(
         self, docs: List[Document], lang: str, max_words: int = DEFAULT_MAX_WORDS
     ) -> str:
-        """
-        Generate summary using iterative refinement method
+        """Generate summary using iterative refinement method.
 
         Args:
             docs: List of documents to summarize
-            lang: Target language
-            max_words: Maximum word count
+            lang: Target language for the summary
+            max_words: Maximum number of words in the summary
 
         Returns:
             Generated summary text
@@ -440,19 +585,11 @@ class RefinementSummarization(Summarization):
             f"Starting iterative refinement summarization, docs: {len(docs)}, lang: {lang}, max_words: {max_words}"
         )
 
-        # Create chains with specific parameters
         initial_chain, refine_chain = self._create_chains(lang, max_words)
-
-        # Create graph functions
         graph_functions = self._create_graph_functions(initial_chain, refine_chain)
-
-        # Build graph
         graph = self._build_graph(*graph_functions)
-
-        # Create initial state
         initial_state = self._create_initial_state(docs)
 
-        # Execute graph with error handling
         return await self._execute_graph_with_error_handling(
             graph, initial_state, "Iterative refinement summarization", "summary"
         )
@@ -460,35 +597,42 @@ class RefinementSummarization(Summarization):
 
 if __name__ == "__main__":
     import asyncio
+    import sys
 
     from langchain_core.documents import Document
     from langchain_openai import AzureChatOpenAI
 
     from crawler import ApifyCrawler
 
-    # Set log level to DEBUG to see detailed information
-    logger.setLevel(logging.DEBUG)
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    llm = AzureChatOpenAI(
-        azure_deployment="gpt-4o-mini",
-        model="gpt-4o-mini",
-        temperature=0,
-    )
+    def main():
+        """Main function to demonstrate the summarization functionality."""
+        logger.setLevel(logging.DEBUG)
 
-    apify_crawler = ApifyCrawler()
-    doc = asyncio.run(
-        apify_crawler.get(
-            [
-                "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp"
-            ]
+        llm = AzureChatOpenAI(
+            azure_deployment="gpt-4o-mini",
+            model="gpt-4o-mini",
+            temperature=0,
         )
-    )
-    print("Summarization with map-reduce")
-    mrsumm = MapReduceSummarization(llm)
-    summary = asyncio.run(mrsumm.summarize(doc, "Chinese"))
-    print(summary)
 
-    print("Summarization with iterative refinement")
-    refsumm = RefinementSummarization(llm)
-    summary = asyncio.run(refsumm.summarize(doc, "Chinese"))
-    print("\n" + summary)
+        apify_crawler = ApifyCrawler()
+        doc = asyncio.run(
+            apify_crawler.get(
+                [
+                    "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp"
+                ]
+            )
+        )
+        print("Summarization with map-reduce")
+        mrsumm = MapReduceSummarization(llm)
+        summary = asyncio.run(mrsumm.summarize(doc, "Chinese"))
+        print(summary)
+
+        print("Summarization with iterative refinement")
+        refsumm = RefinementSummarization(llm)
+        summary = asyncio.run(refsumm.summarize(doc, "Chinese"))
+        print("\n" + summary)
+
+    main()

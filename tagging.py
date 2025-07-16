@@ -1,5 +1,6 @@
-from typing import List, Literal, Optional
+import asyncio
 import logging
+from typing import List, Literal, Optional
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -11,20 +12,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 配置日志
-logging.basicConfig(level=logging.INFO)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
-
-class FCTaggingConfig:
-    """Configuration class for FCTagging"""
-    DEFAULT_MAX_CONCURRENCY = 3
-    DEFAULT_K = 3
-    MIN_CONTENT_LENGTH = 10
-    DEFAULT_CRIME_TYPE = "Not suspected"
-    DEFAULT_PROBABILITY = "low"
-    DEFAULT_CHUNK_SIZE = 1000
-    DEFAULT_CHUNK_OVERLAP = 100
+# Configuration constants
+DEFAULT_MAX_CONCURRENCY = 3
+DEFAULT_K = 3
+MIN_CONTENT_LENGTH = 10
+DEFAULT_CRIME_TYPE = "Not suspected"
+DEFAULT_PROBABILITY = "low"
+DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_OVERLAP = 100
 
 
 class FinancialCrime(BaseModel):
@@ -98,7 +99,6 @@ Passage:
         self,
         llm: BaseChatModel,
         emb: Embeddings,
-        config: Optional[FCTaggingConfig] = None,
     ) -> None:
         """
         Initialize the FCTagging system.
@@ -106,11 +106,9 @@ Passage:
         Args:
             llm: Language model for tagging
             emb: Embedding model for vector operations
-            config: Configuration object, uses default if not provided
         """
         self.llm = llm
         self.emb = emb
-        self.config = config or FCTaggingConfig()
 
         self.tagging_llm = self.llm.with_structured_output(FinancialCrime, strict=True)
         self.tagging_chain = self.TAGGING_PROMPT | self.tagging_llm
@@ -143,22 +141,21 @@ Passage:
         # Input validation
         if not doc or not doc.page_content or not doc.page_content.strip():
             logger.warning("Empty or invalid document content")
-            return {"crime_type": self.config.DEFAULT_CRIME_TYPE, "probability": self.config.DEFAULT_PROBABILITY}
+            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
         
-        if len(doc.page_content.strip()) < self.config.MIN_CONTENT_LENGTH:
+        if len(doc.page_content.strip()) < MIN_CONTENT_LENGTH:
             logger.warning("Document content too short to analyze")
-            return {"crime_type": self.config.DEFAULT_CRIME_TYPE, "probability": self.config.DEFAULT_PROBABILITY}
+            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
         
         try:
             tag = await self.tagging_chain.ainvoke({"input": doc.page_content})
         except Exception as e:
             logger.error(f"Error tagging single document: {e}")
-            # 返回默认的安全值而不是抛出异常
-            return {"crime_type": self.config.DEFAULT_CRIME_TYPE, "probability": self.config.DEFAULT_PROBABILITY}
+            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
 
         if not isinstance(tag, FinancialCrime):
             logger.error("LLM response is not a valid FinancialCrime instance")
-            return {"crime_type": self.config.DEFAULT_CRIME_TYPE, "probability": self.config.DEFAULT_PROBABILITY}
+            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
 
         return tag.model_dump(mode="json")
 
@@ -178,7 +175,7 @@ Passage:
             return []
         
         if max_concurrency is None:
-            max_concurrency = self.config.DEFAULT_MAX_CONCURRENCY
+            max_concurrency = DEFAULT_MAX_CONCURRENCY
             
         try:
             tags = await self.tagging_chain.abatch(
@@ -187,14 +184,13 @@ Passage:
             )
         except Exception as e:
             logger.error(f"Error tagging batch documents: {e}")
-            # 返回默认值列表而不是抛出异常
-            return [{"crime_type": self.config.DEFAULT_CRIME_TYPE, "probability": self.config.DEFAULT_PROBABILITY} for _ in docs]
+            return [{"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY} for _ in docs]
 
         try:
             self._validate_tags(tags)
         except ValueError as e:
             logger.error(f"Tag validation failed: {e}")
-            return [{"crime_type": self.config.DEFAULT_CRIME_TYPE, "probability": self.config.DEFAULT_PROBABILITY} for _ in docs]
+            return [{"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY} for _ in docs]
 
         return [tag.model_dump(mode="json") for tag in tags]  # type: ignore
     
@@ -219,7 +215,7 @@ Passage:
                 results.append(result)
             except Exception as e:
                 logger.error(f"Failed to process document: {e}")
-                results.append({"crime_type": self.config.DEFAULT_CRIME_TYPE, "probability": self.config.DEFAULT_PROBABILITY})
+                results.append({"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY})
         return results
 
     async def tagging_combine(
@@ -240,7 +236,7 @@ Passage:
         """
         if not docs:
             logger.warning("Empty document list provided to tagging_combine")
-            return {"crime_type": self.config.DEFAULT_CRIME_TYPE, "probability": self.config.DEFAULT_PROBABILITY}
+            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
             
         medium_proba_types = set()
         high_proba_types = set()
@@ -248,7 +244,7 @@ Passage:
         tags = await self._tag_batch(docs)
         for tag in tags:
             crime_type = tag.get("crime_type")
-            if crime_type == self.config.DEFAULT_CRIME_TYPE:
+            if crime_type == DEFAULT_CRIME_TYPE:
                 continue
                 
             probability = tag.get("probability")
@@ -265,7 +261,7 @@ Passage:
                 "probability": "medium",
             }
         else:
-            return {"crime_type": self.config.DEFAULT_CRIME_TYPE, "probability": self.config.DEFAULT_PROBABILITY}
+            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
 
     async def tagging_rag(
         self,
@@ -284,7 +280,7 @@ Passage:
             docs: Optional list of documents to use for creating temporary vector store
             vectordb: Optional pre-existing vector store to search from
             filter: Optional filter to apply during vector search
-            k: Number of documents to retrieve (defaults to config.DEFAULT_K)
+            k: Number of documents to retrieve (defaults to DEFAULT_K)
             
         Returns:
             Dictionary containing crime_type and probability assessment
@@ -293,7 +289,7 @@ Passage:
             ValueError: If neither docs nor vectordb are provided
         """
         if k is None:
-            k = self.config.DEFAULT_K
+            k = DEFAULT_K
 
         if not docs and not vectordb:
             raise ValueError("At least one of 'docs' or 'vectordb' must be provided.")
@@ -327,43 +323,51 @@ manipulation of securities markets?
 
 if __name__ == "__main__":
     import asyncio
+    import sys
     from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     from crawler import ApifyCrawler
 
-    llm = AzureChatOpenAI(
-        azure_deployment="gpt-4o-mini",
-        model="gpt-4o-mini",
-        temperature=0,
-    )
-    emb = AzureOpenAIEmbeddings(azure_deployment="text-embedding-3-small")
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    apify_crawler = ApifyCrawler()
-    doc = asyncio.run(
-        apify_crawler.get(
-            [
-                "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp"
-            ]
+    def main():
+        """Main function to demonstrate the financial crime tagging functionality."""
+        llm = AzureChatOpenAI(
+            azure_deployment="gpt-4o-mini",
+            model="gpt-4o-mini",
+            temperature=0,
         )
-    )
+        emb = AzureOpenAIEmbeddings(azure_deployment="text-embedding-3-small")
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-    all_chunks = text_splitter.split_documents(doc)
+        apify_crawler = ApifyCrawler()
+        doc = asyncio.run(
+            apify_crawler.get(
+                [
+                    "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp"
+                ]
+            )
+        )
 
-    fctagging = FCTagging(llm, emb)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        all_chunks = text_splitter.split_documents(doc)
 
-    print("tagging a single chunk...")
-    tag = asyncio.run(fctagging._tag_single(all_chunks[0]))
-    print(tag)
+        fctagging = FCTagging(llm, emb)
 
-    print("\ntagging all chunks...")
-    tags = asyncio.run(fctagging._tag_batch(all_chunks))
-    print(tags)
+        print("tagging a single chunk...")
+        tag = asyncio.run(fctagging._tag_single(all_chunks[0]))
+        print(tag)
 
-    print("\ntagging all chunks and combine the result...")
-    tags = asyncio.run(fctagging.tagging_combine(all_chunks))
-    print(tags)
+        print("\ntagging all chunks...")
+        tags = asyncio.run(fctagging._tag_batch(all_chunks))
+        print(tags)
 
-    print("\ntagging with RAG...")
-    tags = asyncio.run(fctagging.tagging_rag(all_chunks))
-    print(tags)
+        print("\ntagging all chunks and combine the result...")
+        tags = asyncio.run(fctagging.tagging_combine(all_chunks))
+        print(tags)
+
+        print("\ntagging with RAG...")
+        tags = asyncio.run(fctagging.tagging_rag(all_chunks))
+        print(tags)
+
+    main()

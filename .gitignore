@@ -6,6 +6,6 @@
 *.log
 *.pem
 *.bak
-test.*
+test*.*
 .env
 nohup.out
