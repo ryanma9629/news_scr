@@ -1,0 +1,11 @@
+**/__pycache__
+**/.cache
+**/.chroma
+.idea
+*.py[cod]
+*.log
+*.pem
+*.bak
+test.*
+.env
+nohup.out
