@@ -6,6 +6,9 @@ from typing import Annotated, List, Literal, TypedDict
 
 from dotenv import load_dotenv
 from langchain.chains.combine_documents.reduce import acollapse_docs, split_list_of_docs
+from langchain_community.document_transformers.embeddings_redundant_filter import (
+    EmbeddingsClusteringFilter,
+)
 from langchain_core.documents import Document
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
@@ -84,14 +87,14 @@ DEFAULT_MAX_TOKENS = 2000
 class Summarization(ABC):
     """
     Abstract base class for document summarization systems.
-    
+
     This class provides a common interface for different summarization implementations,
     defining the basic structure and required methods for document summarization.
     """
-    
+
     def __init__(self, llm: BaseChatModel) -> None:
         """Initialize the summarization system.
-        
+
         Args:
             llm: Language model for generating summaries
         """
@@ -99,21 +102,58 @@ class Summarization(ABC):
         self.llm = llm
 
     @abstractmethod
-    def summarize(self, docs: List[Document], lang: str, max_words: int) -> str:
+    def summarize(
+        self, docs: List[Document], lang: str, max_words: int, num_cluster: int = 0
+    ) -> str:
         """Generate summary for given documents.
-        
+
         Args:
             docs: List of documents to summarize
             lang: Target language for the summary
             max_words: Maximum number of words in the summary
-            
+            num_cluster: Number of clusters for document clustering (0 = no clustering)
+
         Returns:
             Generated summary text
-            
+
         Raises:
             NotImplementedError: Must be implemented by subclasses
         """
         raise NotImplementedError
+
+    def _cluster_documents(
+        self, docs: List[Document], num_cluster: int, embeddings
+    ) -> List[Document]:
+        """Cluster documents using EmbeddingsClusteringFilter.
+
+        Args:
+            docs: List of documents to cluster
+            num_cluster: Number of clusters
+            embeddings: Embeddings model for clustering
+
+        Returns:
+            List of clustered documents (representative documents from each cluster)
+        """
+        if num_cluster <= 0 or len(docs) <= num_cluster:
+            logger.info(
+                f"Skipping clustering: num_cluster={num_cluster}, docs={len(docs)}"
+            )
+            return docs
+
+        try:
+            logger.info(f"Clustering {len(docs)} documents into {num_cluster} clusters")
+            clustering_filter = EmbeddingsClusteringFilter(
+                embeddings=embeddings, num_clusters=num_cluster, sorted=True
+            )
+            clustered_docs = clustering_filter.transform_documents(docs)
+            logger.info(
+                f"Clustering completed, reduced to {len(clustered_docs)} documents"
+            )
+            return list(clustered_docs)
+        except Exception as e:
+            logger.error(f"Error during document clustering: {str(e)}")
+            logger.info("Falling back to original documents")
+            return docs
 
     async def _execute_graph_with_error_handling(
         self, graph, initial_state, method_name: str, summary_key: str = "summary"
@@ -160,11 +200,11 @@ class Summarization(ABC):
     @abstractmethod
     def _create_chains(self, lang: str, max_words: int) -> tuple:
         """Create and return configured chains for summarization.
-        
+
         Args:
             lang: Target language for the summary
             max_words: Maximum number of words in the summary
-            
+
         Returns:
             Tuple of configured chains
         """
@@ -173,11 +213,11 @@ class Summarization(ABC):
     @abstractmethod
     def _create_graph_functions(self, *args, **kwargs) -> tuple:
         """Create and return all graph node functions.
-        
+
         Args:
             *args: Variable arguments
             **kwargs: Keyword arguments
-            
+
         Returns:
             Tuple of graph node functions
         """
@@ -186,10 +226,10 @@ class Summarization(ABC):
     @abstractmethod
     def _create_initial_state(self, docs: List[Document]) -> dict:
         """Create initial state for the graph.
-        
+
         Args:
             docs: List of documents to summarize
-            
+
         Returns:
             Initial state dictionary
         """
@@ -198,10 +238,10 @@ class Summarization(ABC):
     @abstractmethod
     def _build_graph(self, *graph_functions):
         """Build and return the state graph.
-        
+
         Args:
             *graph_functions: Graph node functions
-            
+
         Returns:
             Compiled state graph
         """
@@ -211,18 +251,20 @@ class Summarization(ABC):
 class MapReduceSummarization(Summarization):
     """
     Map-Reduce based document summarization system.
-    
+
     This class provides document summarization using a Map-Reduce approach,
     processing documents in parallel and then reducing results to a final summary.
     """
-    
-    def __init__(self, llm: BaseChatModel) -> None:
+
+    def __init__(self, llm: BaseChatModel, embeddings=None) -> None:
         """Initialize the Map-Reduce summarization system.
-        
+
         Args:
             llm: Language model for generating summaries
+            embeddings: Embeddings model for document clustering (optional)
         """
         super().__init__(llm)
+        self.embeddings = embeddings
         self.max_words = DEFAULT_MAX_WORDS
         self.max_token = DEFAULT_MAX_TOKENS
 
@@ -235,11 +277,11 @@ class MapReduceSummarization(Summarization):
 
     def _create_chains(self, lang: str, max_words: int) -> tuple:
         """Create and return configured chains for Map-Reduce summarization.
-        
+
         Args:
             lang: Target language for the summary
             max_words: Maximum number of words in the summary
-            
+
         Returns:
             Tuple of (map_chain, reduce_chain)
         """
@@ -253,12 +295,12 @@ class MapReduceSummarization(Summarization):
 
     def _create_graph_functions(self, map_chain, reduce_chain, max_token: int):
         """Create and return all graph node functions for Map-Reduce.
-        
+
         Args:
             map_chain: Chain for mapping phase
             reduce_chain: Chain for reduce phase
             max_token: Maximum token count
-            
+
         Returns:
             Tuple of graph node functions
         """
@@ -347,10 +389,10 @@ class MapReduceSummarization(Summarization):
 
     def _create_initial_state(self, docs: List[Document]) -> MapReduceOverallState:
         """Create initial state for the Map-Reduce graph.
-        
+
         Args:
             docs: List of documents to summarize
-            
+
         Returns:
             Initial state dictionary for Map-Reduce
         """
@@ -371,7 +413,7 @@ class MapReduceSummarization(Summarization):
         generate_final_summary,
     ):
         """Build and return the Map-Reduce state graph.
-        
+
         Args:
             generate_summary: Function to generate individual summaries
             map_summaries: Function to map documents to summary tasks
@@ -379,7 +421,7 @@ class MapReduceSummarization(Summarization):
             collapse_summaries: Function to collapse multiple summaries
             should_collapse: Function to determine if collapse is needed
             generate_final_summary: Function to generate final summary
-            
+
         Returns:
             Compiled state graph
         """
@@ -403,6 +445,7 @@ class MapReduceSummarization(Summarization):
         lang: str,
         max_words: int = DEFAULT_MAX_WORDS,
         max_token: int = DEFAULT_MAX_TOKENS,
+        num_cluster: int = 0,
     ) -> str:
         """Generate summary using Map-Reduce method.
 
@@ -411,20 +454,33 @@ class MapReduceSummarization(Summarization):
             lang: Target language for the summary
             max_words: Maximum number of words in the summary
             max_token: Maximum token count for intermediate processing
+            num_cluster: Number of clusters for document clustering (0 = no clustering)
 
         Returns:
             Generated summary text
         """
         logger.info(
-            f"Starting Map-Reduce summarization, docs: {len(docs)}, lang: {lang}, max_words: {max_words}"
+            f"Starting Map-Reduce summarization, docs: {len(docs)}, lang: {lang}, max_words: {max_words}, num_cluster: {num_cluster}"
         )
+
+        # Apply clustering if requested
+        if num_cluster > 0:
+            if self.embeddings is None:
+                logger.warning("Embeddings not provided, skipping clustering")
+                processed_docs = docs
+            else:
+                processed_docs = self._cluster_documents(
+                    docs, num_cluster, self.embeddings
+                )
+        else:
+            processed_docs = docs
 
         map_chain, reduce_chain = self._create_chains(lang, max_words)
         graph_functions = self._create_graph_functions(
             map_chain, reduce_chain, max_token
         )
         graph = self._build_graph(*graph_functions)
-        initial_state = self._create_initial_state(docs)
+        initial_state = self._create_initial_state(processed_docs)
 
         return await self._execute_graph_with_error_handling(
             graph, initial_state, "Map-Reduce summarization", "final_summary"
@@ -434,29 +490,31 @@ class MapReduceSummarization(Summarization):
 class RefinementSummarization(Summarization):
     """
     Iterative refinement based document summarization system.
-    
+
     This class provides document summarization using an iterative refinement approach,
     progressively improving the summary by incorporating additional documents.
     """
-    
-    def __init__(self, llm: BaseChatModel) -> None:
+
+    def __init__(self, llm: BaseChatModel, embeddings=None) -> None:
         """Initialize the refinement summarization system.
-        
+
         Args:
             llm: Language model for generating summaries
+            embeddings: Embeddings model for document clustering (optional)
         """
         super().__init__(llm)
+        self.embeddings = embeddings
 
         self.initial_prompt = ChatPromptTemplate([("human", INITIAL_SUMMARY_TEMPLATE)])
         self.refine_prompt = ChatPromptTemplate([("human", REFINE_SUMMARY_TEMPLATE)])
 
     def _create_chains(self, lang: str, max_words: int) -> tuple:
         """Create and return configured chains for refinement summarization.
-        
+
         Args:
             lang: Target language for the summary
             max_words: Maximum number of words in the summary
-            
+
         Returns:
             Tuple of (initial_chain, refine_chain)
         """
@@ -470,11 +528,11 @@ class RefinementSummarization(Summarization):
 
     def _create_graph_functions(self, initial_chain, refine_chain):
         """Create and return all graph node functions for refinement.
-        
+
         Args:
             initial_chain: Chain for initial summary generation
             refine_chain: Chain for summary refinement
-            
+
         Returns:
             Tuple of graph node functions
         """
@@ -534,10 +592,10 @@ class RefinementSummarization(Summarization):
 
     def _create_initial_state(self, docs: List[Document]) -> RefinementState:
         """Create initial state for the Refinement graph.
-        
+
         Args:
             docs: List of documents to summarize
-            
+
         Returns:
             Initial state dictionary for refinement
         """
@@ -549,12 +607,12 @@ class RefinementSummarization(Summarization):
 
     def _build_graph(self, generate_initial_summary, refine_summary, should_refine):
         """Build and return the Refinement state graph.
-        
+
         Args:
             generate_initial_summary: Function to generate initial summary
             refine_summary: Function to refine the summary
             should_refine: Function to determine if refinement should continue
-            
+
         Returns:
             Compiled state graph
         """
@@ -569,7 +627,11 @@ class RefinementSummarization(Summarization):
         return graph_builder.compile()
 
     async def summarize(
-        self, docs: List[Document], lang: str, max_words: int = DEFAULT_MAX_WORDS
+        self,
+        docs: List[Document],
+        lang: str,
+        max_words: int = DEFAULT_MAX_WORDS,
+        num_cluster: int = 0,
     ) -> str:
         """Generate summary using iterative refinement method.
 
@@ -577,18 +639,31 @@ class RefinementSummarization(Summarization):
             docs: List of documents to summarize
             lang: Target language for the summary
             max_words: Maximum number of words in the summary
+            num_cluster: Number of clusters for document clustering (0 = no clustering)
 
         Returns:
             Generated summary text
         """
         logger.info(
-            f"Starting iterative refinement summarization, docs: {len(docs)}, lang: {lang}, max_words: {max_words}"
+            f"Starting iterative refinement summarization, docs: {len(docs)}, lang: {lang}, max_words: {max_words}, num_cluster: {num_cluster}"
         )
+
+        # Apply clustering if requested
+        if num_cluster > 0:
+            if self.embeddings is None:
+                logger.warning("Embeddings not provided, skipping clustering")
+                processed_docs = docs
+            else:
+                processed_docs = self._cluster_documents(
+                    docs, num_cluster, self.embeddings
+                )
+        else:
+            processed_docs = docs
 
         initial_chain, refine_chain = self._create_chains(lang, max_words)
         graph_functions = self._create_graph_functions(initial_chain, refine_chain)
         graph = self._build_graph(*graph_functions)
-        initial_state = self._create_initial_state(docs)
+        initial_state = self._create_initial_state(processed_docs)
 
         return await self._execute_graph_with_error_handling(
             graph, initial_state, "Iterative refinement summarization", "summary"
@@ -617,6 +692,11 @@ if __name__ == "__main__":
             temperature=0,
         )
 
+        # Import embeddings for clustering
+        from langchain_openai import AzureOpenAIEmbeddings
+
+        embeddings = AzureOpenAIEmbeddings(azure_deployment="text-embedding-3-small")
+
         apify_crawler = ApifyCrawler()
         doc = asyncio.run(
             apify_crawler.get(
@@ -625,14 +705,25 @@ if __name__ == "__main__":
                 ]
             )
         )
-        print("Summarization with map-reduce")
-        mrsumm = MapReduceSummarization(llm)
-        summary = asyncio.run(mrsumm.summarize(doc, "Chinese"))
+
+        print("Summarization with map-reduce (no clustering)")
+        mrsumm = MapReduceSummarization(llm, embeddings)
+        summary = asyncio.run(mrsumm.summarize(doc, "Chinese", num_cluster=0))
         print(summary)
 
-        print("Summarization with iterative refinement")
-        refsumm = RefinementSummarization(llm)
-        summary = asyncio.run(refsumm.summarize(doc, "Chinese"))
-        print("\n" + summary)
+        print("\nSummarization with map-reduce (with clustering)")
+        summary_clustered = asyncio.run(mrsumm.summarize(doc, "Chinese", num_cluster=2))
+        print(summary_clustered)
+
+        print("\nSummarization with iterative refinement (no clustering)")
+        refsumm = RefinementSummarization(llm, embeddings)
+        summary = asyncio.run(refsumm.summarize(doc, "Chinese", num_cluster=0))
+        print(summary)
+
+        print("\nSummarization with iterative refinement (with clustering)")
+        summary_clustered = asyncio.run(
+            refsumm.summarize(doc, "Chinese", num_cluster=2)
+        )
+        print(summary_clustered)
 
     main()
