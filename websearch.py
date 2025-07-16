@@ -2,10 +2,12 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from typing import List, Optional, TypedDict
+from dotenv import load_dotenv
 
 from langchain_community.utilities import BingSearchAPIWrapper
 from langchain_community.utilities.google_serper import GoogleSerperAPIWrapper
 
+load_dotenv()
 
 class SearchResult(TypedDict):
     url: str
