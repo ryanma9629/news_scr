@@ -1,4 +1,5 @@
 import logging
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -135,15 +136,15 @@ class MongoStore(DocStore):
     def load_contents(
         self,
         urls: List[str],
-        data_within_days: int = 0,
         collection: str = DEFAULT_CONTENTS_COLLECTION,
+        days: int = 0,
     ) -> List[dict]:
         """Load document contents from MongoDB.
         
         Args:
             urls: List of URLs to load contents for
-            data_within_days: Number of days to look back for data (0 for all)
             collection: MongoDB collection name to query
+            days: Number of days to look back for data (0 for all)
             
         Returns:
             List of dictionaries containing document contents
@@ -157,23 +158,24 @@ class MongoStore(DocStore):
 
         try:
             with self._get_collection(collection) as col:
-                # Build query conditions
+                # Build query conditions with case-insensitive matching
                 query = {
-                    "company_name": self.company_name,
-                    "lang": self.lang,
-                    "url": {"$in": urls},
+                    "company_name": {"$regex": f"^{re.escape(self.company_name)}$", "$options": "i"},
+                    "lang": {"$regex": f"^{re.escape(self.lang)}$", "$options": "i"},
+                    "$or": [{"url": {"$regex": f"^{re.escape(url)}$", "$options": "i"}} for url in urls],
                 }
 
-                if data_within_days:
+                # Add date filter if days is specified
+                if days > 0:
                     within_date = datetime.combine(
                         datetime.today(), datetime.min.time()
-                    ) - timedelta(data_within_days)
+                    ) - timedelta(days=days)
                     query["modified_date"] = {"$gte": within_date}
 
                 cursor = col.find(query, {"url": 1, "text": 1, "_id": 0})
                 result = list(cursor)
                 
-                logger.info(f"Loaded {len(result)} contents for {len(urls)} URLs")
+                logger.info(f"Loaded {len(result)} contents for {len(urls)} URLs (within {days} days)")
                 return result
                 
         except Exception as e:
@@ -181,13 +183,14 @@ class MongoStore(DocStore):
             raise
 
     def save_contents(
-        self, contents: List[dict], collection: str = DEFAULT_CONTENTS_COLLECTION
+        self, contents: List[dict], collection: str = DEFAULT_CONTENTS_COLLECTION, days: int = 0
     ) -> None:
         """Save document contents to MongoDB.
         
         Args:
             contents: List of dictionaries containing document contents
             collection: MongoDB collection name to save to
+            days: Only update contents older than this many days (0 for always update)
             
         Raises:
             Exception: If database operation fails
@@ -198,30 +201,60 @@ class MongoStore(DocStore):
 
         try:
             with self._get_collection(collection) as col:
+                updated_count = 0
+                skipped_count = 0
+                
                 for doc in contents:
                     if "url" not in doc or "text" not in doc:
                         logger.warning(f"Skipping document with missing required fields: {doc}")
                         continue
-                        
-                    col.update_one(
-                        {
-                            "company_name": self.company_name,
-                            "lang": self.lang,
-                            "url": doc["url"],
-                        },
-                        {
-                            "$currentDate": {"modified_date": {"$type": "date"}},
-                            "$set": {
-                                "company_name": self.company_name,
-                                "lang": self.lang,
-                                "url": doc["url"],
-                                "text": doc["text"],
-                            },
-                        },
-                        upsert=True,
-                    )
                     
-                logger.info(f"Saved {len(contents)} contents")
+                    # Check if we should update based on days parameter
+                    should_update = True
+                    if days > 0:
+                        # Check if document exists and its age
+                        existing_doc = col.find_one(
+                            {
+                                "company_name": {"$regex": f"^{re.escape(self.company_name)}$", "$options": "i"},
+                                "lang": {"$regex": f"^{re.escape(self.lang)}$", "$options": "i"},
+                                "url": {"$regex": f"^{re.escape(doc['url'])}$", "$options": "i"},
+                            },
+                            {"modified_date": 1}
+                        )
+                        
+                        if existing_doc and "modified_date" in existing_doc:
+                            # Calculate the age of the existing document
+                            age_threshold = datetime.combine(
+                                datetime.today(), datetime.min.time()
+                            ) - timedelta(days=days)
+                            
+                            # Only update if the document is older than the threshold
+                            if existing_doc["modified_date"] > age_threshold:
+                                should_update = False
+                                skipped_count += 1
+                                logger.info(f"Skipping update for {doc['url']} (not older than {days} days)")
+                    
+                    if should_update:
+                        col.update_one(
+                            {
+                                "company_name": {"$regex": f"^{re.escape(self.company_name)}$", "$options": "i"},
+                                "lang": {"$regex": f"^{re.escape(self.lang)}$", "$options": "i"},
+                                "url": {"$regex": f"^{re.escape(doc['url'])}$", "$options": "i"},
+                            },
+                            {
+                                "$currentDate": {"modified_date": {"$type": "date"}},
+                                "$set": {
+                                    "company_name": self.company_name,
+                                    "lang": self.lang,
+                                    "url": doc["url"],
+                                    "text": doc["text"],
+                                },
+                            },
+                            upsert=True,
+                        )
+                        updated_count += 1
+                    
+                logger.info(f"Saved {updated_count} contents, skipped {skipped_count} (not older than {days} days)")
                 
         except Exception as e:
             logger.error(f"Error saving contents: {e}")
@@ -232,8 +265,8 @@ class MongoStore(DocStore):
         urls: List[str],
         method: str,
         llm_name: str,
-        data_within_days: int = 0,
         collection: str = DEFAULT_TAGS_COLLECTION,
+        days: int = 0,
     ) -> List[dict]:
         """Load document tags from MongoDB.
         
@@ -241,8 +274,8 @@ class MongoStore(DocStore):
             urls: List of URLs to load tags for
             method: Tagging method used
             llm_name: Name of the LLM used for tagging
-            data_within_days: Number of days to look back for data (0 for all)
             collection: MongoDB collection name to query
+            days: Number of days to look back for data (0 for all)
             
         Returns:
             List of dictionaries containing document tags
@@ -256,25 +289,26 @@ class MongoStore(DocStore):
 
         try:
             with self._get_collection(collection) as col:
-                # Build query conditions
+                # Build query conditions with case-insensitive matching
                 query = {
-                    "company_name": self.company_name,
-                    "lang": self.lang,
+                    "company_name": {"$regex": f"^{re.escape(self.company_name)}$", "$options": "i"},
+                    "lang": {"$regex": f"^{re.escape(self.lang)}$", "$options": "i"},
                     "method": method,
                     "llm_name": llm_name,
-                    "url": {"$in": urls},
+                    "$or": [{"url": {"$regex": f"^{re.escape(url)}$", "$options": "i"}} for url in urls],
                 }
 
-                if data_within_days:
+                # Add date filter if days is specified
+                if days > 0:
                     within_date = datetime.combine(
                         datetime.today(), datetime.min.time()
-                    ) - timedelta(data_within_days)
+                    ) - timedelta(days=days)
                     query["modified_date"] = {"$gte": within_date}
 
                 cursor = col.find(query, {"url": 1, "crime_type": 1, "probability": 1, "_id": 0})
                 result = list(cursor)
                 
-                logger.info(f"Loaded {len(result)} tags for {len(urls)} URLs")
+                logger.info(f"Loaded {len(result)} tags for {len(urls)} URLs (within {days} days)")
                 return result
                 
         except Exception as e:
@@ -282,7 +316,7 @@ class MongoStore(DocStore):
             raise
 
     def save_tags(
-        self, tags: List[dict], method: str, llm_name: str, collection: str = DEFAULT_TAGS_COLLECTION
+        self, tags: List[dict], method: str, llm_name: str, collection: str = DEFAULT_TAGS_COLLECTION, days: int = 0
     ) -> None:
         """Save document tags to MongoDB.
         
@@ -291,6 +325,7 @@ class MongoStore(DocStore):
             method: Tagging method used
             llm_name: Name of the LLM used for tagging
             collection: MongoDB collection name to save to
+            days: Only update tags older than this many days (0 for always update)
             
         Raises:
             Exception: If database operation fails
@@ -306,17 +341,29 @@ class MongoStore(DocStore):
                     if not all(field in item for field in required_fields):
                         logger.warning(f"Skipping item with missing required fields: {item}")
                         continue
+                    
+                    # Build update query with case-insensitive matching
+                    filter_query = {
+                        "company_name": {"$regex": f"^{re.escape(self.company_name)}$", "$options": "i"},
+                        "lang": {"$regex": f"^{re.escape(self.lang)}$", "$options": "i"},
+                        "method": method,
+                        "llm_name": llm_name,
+                        "url": {"$regex": f"^{re.escape(item['url'])}$", "$options": "i"},
+                    }
+
+                    # If days is specified, add date filter to only update older records
+                    if days > 0:
+                        older_than_date = datetime.combine(
+                            datetime.today(), datetime.min.time()
+                        ) - timedelta(days=days)
+                        filter_query["$or"] = [
+                            {"modified_date": {"$lt": older_than_date}},
+                            {"modified_date": {"$exists": False}}
+                        ]
                         
                     col.update_one(
+                        filter_query,
                         {
-                            "company_name": self.company_name,
-                            "lang": self.lang,
-                            "method": method,
-                            "llm_name": llm_name,
-                            "url": item["url"],
-                        },
-                        {
-                            "$currentDate": {"modified_date": {"$type": "date"}},
                             "$set": {
                                 "company_name": self.company_name,
                                 "lang": self.lang,
@@ -325,12 +372,13 @@ class MongoStore(DocStore):
                                 "url": item["url"],
                                 "crime_type": item["crime_type"],
                                 "probability": item["probability"],
-                            },
+                                "modified_date": datetime.now(),
+                            }
                         },
                         upsert=True,
                     )
-                    
-                logger.info(f"Saved {len(tags)} tags")
+                
+                logger.info(f"Saved {len(tags)} tags to MongoDB")
                 
         except Exception as e:
             logger.error(f"Error saving tags: {e}")
