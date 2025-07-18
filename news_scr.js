@@ -289,13 +289,12 @@ function getNewsContent() {
         }
     });
 
-    // 调用API获取内容
+    // 调用API获取内容（不再传递urls参数，从session获取）
     $.ajax({
         url: 'http://127.0.0.1:8280/api/crawler',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({
-            urls: urls,
             crawler_type: 'apify',
             company_name: $('#company_name').val().trim(),
             lang: $('#lang').val(),
@@ -434,9 +433,8 @@ function performTagging() {
         }
     });
 
-    // 调用API进行标签处理
+    // 调用API进行标签处理（不再传递urls参数，从session获取）
     const requestData = {
-        urls: urls,
         company_name: $('#company_name').val().trim(),
         lang: $('#lang').val(),
         tagging_method: $('#tagging_method').val(),
@@ -583,18 +581,8 @@ function performSummary() {
         </div>
     `, 'info', false);
 
-    // 获取所有新闻URL
-    const urls = [];
-    newsRows.each(function() {
-        const url = $(this).data('url');
-        if (url) {
-            urls.push(url);
-        }
-    });
-
-    // 收集表单参数
+    // 收集表单参数（不再传递urls参数，从session获取）
     const requestData = {
-        urls: urls,
         company_name: $('#company_name').val().trim(),
         lang: $('#lang').val(),
         summary_method: $('#summary_method').val(),
@@ -765,21 +753,11 @@ function performQA() {
         </div>
     `, 'info', false);
     
-    // 获取所有新闻URL
-    const urls = [];
-    newsRows.each(function() {
-        const url = $(this).data('url');
-        if (url) {
-            urls.push(url);
-        }
-    });
-    
-    // 收集请求参数
+    // 收集请求参数（不再传递urls参数，从session获取）
     const requestData = {
         question: question,
         company_name: $('#company_name').val().trim(),
-        lang: $('#lang').val(),
-        urls: urls
+        lang: $('#lang').val()
     };
     
     console.log('QA request data:', requestData);
