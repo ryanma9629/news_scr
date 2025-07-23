@@ -8,398 +8,481 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
     <style>
-        /* 调整整体字体大小 */
-        body {
-            font-size: 0.85rem; /* 比默认的1rem小一些 */
+        /* Optimized typography scale */
+        :root {
+            --font-base: 0.85rem;
+            --font-small: 0.8rem;
+            --font-xs: 0.7rem;
         }
         
-        /* 调整表格字体大小 */
-        .table {
-            font-size: 0.8rem;
-        }
+        body { font-size: var(--font-base); }
+        .table, .table a, .btn, .form-control, .form-select, 
+        .form-label, .form-check-label, .alert { font-size: var(--font-small); }
+        .table thead th { font-size: 0.82rem; }
+        .modal-title { font-size: 1.1rem; }
+        small { font-size: var(--font-xs); }
         
-        /* 调整表头字体大小 */
-        .table thead th {
-            font-size: 0.82rem;
-        }
+        /* UI improvements */
+        .search-form { min-height: calc(100vh - 2rem); }
+        .results-container { background: #f8f9fa; }
+        .modal-dialog { max-width: 600px; }
+        .btn-group .btn { min-width: 120px; }
         
-        /* 调整表格内链接字体大小 */
-        .table a {
-            font-size: 0.8rem;
-        }
+        /* Loading states */
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .spinner-border-sm { width: 0.875rem; height: 0.875rem; }
         
-        /* 调整按钮字体大小 */
-        .btn {
-            font-size: 0.8rem;
+        /* Custom table header styling */
+        .table-dark-blue {
+            background-color: #1e3a8a !important;
+            color: white !important;
         }
-        
-        /* 调整输入框和选择框字体大小 */
-        .form-control, .form-select {
-            font-size: 0.8rem;
-        }
-        
-        /* 调整标签字体大小 */
-        .form-label {
-            font-size: 0.8rem;
-        }
-        
-        /* 调整复选框标签字体大小 */
-        .form-check-label {
-            font-size: 0.8rem;
-        }
-        
-        /* 调整modal标题字体大小 */
-        .modal-title {
-            font-size: 1.1rem;
-        }
-        
-        /* 调整alert信息字体大小 */
-        .alert {
-            font-size: 0.8rem;
-        }
-        
-        /* 调整小字体更小 */
-        small {
-            font-size: 0.7rem;
+        .table-dark-blue th {
+            background-color: #1e3a8a !important;
+            color: white !important;
+            border-color: #2563eb !important;
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
-    <script src="news_scr.js"></script>
 </head>
 
 <body>
-    <div class="row m-1">
-        <div class="col-lg-3">
-            <div class="container border bg-light m-1 rounded-3">
-                <form id="frm_web_search">
-                    <div class="mx-1 my-3 vi_deploy">
-                        <label for="company_name" class="form-label">Company to check:</label>
-                        <input id="company_name" name="company_name" type="text" class="form-control" required
-                            autocomplete="on">
+    <div class="container-fluid">
+        <div class="row g-3 p-3">
+            <!-- Search Form Column -->
+            <div class="col-lg-3">
+                <div class="card h-100 search-form">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-search me-2"></i>News Search
+                        </h5>
                     </div>
-                    <div class="mx-1 my-3">
-                        <label for="lang" class="form-label">Choose a language:</label>
-                        <select id="lang" name="lang" class="form-select">
-                            <option value="zh-CN">Simplified Chinese</option>
-                            <option value="zh-HK">Traditional Chinese(HK)</option>
-                            <option value="zh-TW">Traditional Chinese(TW)</option>
-                            <option value="en-US" selected>English</option>
-                            <option value="ja-JP">Japanese</option>
-                        </select>
+                    <div class="card-body">
+                        <form id="frm_web_search">
+                            <div class="mb-3">
+                                <label for="company_name" class="form-label">Company to check:</label>
+                                <input id="company_name" name="company_name" type="text" 
+                                       class="form-control" required autocomplete="on"
+                                       placeholder="Enter company name">
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="lang" class="form-label">Language:</label>
+                                <select id="lang" name="lang" class="form-select">
+                                    <option value="zh-CN">简体中文</option>
+                                    <option value="zh-HK">繁體中文(HK)</option>
+                                    <option value="zh-TW">繁體中文(TW)</option>
+                                    <option value="en-US" selected>English</option>
+                                    <option value="ja-JP">日本語</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="search_suffix" class="form-label">Search Topic:</label>
+                                <select id="search_suffix" name="search_suffix" class="form-select">
+                                    <option value="negative">Negative News</option>
+                                    <option value="crime">Criminal Suspect</option>
+                                    <option value="everything">(Everything)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="mb-3">
+                                        <label for="search_engine" class="form-label">Search Engine:</label>
+                                        <select id="search_engine" name="search_engine" class="form-select">
+                                            <option value="Google">Google</option>
+                                            <option value="Bing">Bing</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="mb-3">
+                                        <label for="num_results" class="form-label">Max Results:</label>
+                                        <select id="num_results" name="num_results" class="form-select">
+                                            <option value="5">5</option>
+                                            <option value="10">10</option>
+                                            <option value="20">20</option>
+                                            <option value="50">50</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="llm_model" class="form-label">LLM Model:</label>
+                                <select id="llm_model" name="llm_model" class="form-select">
+                                    <option value="gpt-4.1">GPT-4.1</option>
+                                    <option value="gpt-4o" selected>GPT-4o</option>
+                                    <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                    <option value="qwen-max" disabled>Qwen Max (Not Supported)</option>
+                                    <option value="qwen-plus" disabled>Qwen Plus (Not Supported)</option>
+                                    <option value="qwen-turbo" disabled>Qwen Turbo (Not Supported)</option>
+                                    <option value="deepseek-v3" disabled>DeepSeek V3 (Not Supported)</option>
+                                </select>
+                                <div class="form-text">
+                                    <small class="text-muted">Supported: GPT-4.1, GPT-4o, GPT-4o Mini</small>
+                                </div>
+                            </div>
+                            
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-search me-2"></i>Search News
+                                </button>
+                            </div>
+                        </form>
                     </div>
-                    <div class="mx-1 my-3">
-                        <label for="search_suffix" class="form-label">Choose a search topic:</label>
-                        <select id="search_suffix" name="search_suffix" class="form-select">
-                            <option value="negative">Negative News</option>
-                            <option value="crime">Criminal Suspect</option>
-                            <option value="everything">(Everything)</option>
-                        </select>
-                    </div>
-                    <div class="mx-1 my-3">
-                        <label for="search_engine" class="form-label">Choose a search engine:</label>
-                        <select id="search_engine" name="search_engine" class="form-select">
-                            <option value="Google">Google</option>
-                            <option value="Bing">Bing</option>
-                        </select>
-                    </div>
-                    <div class="mx-1 my-3">
-                        <label for="num_results" class="form-label">Maximum number of news to fetch:</label>
-                        <select id="num_results" name="num_results" class="form-select">
-                            <option value="5">5</option>
-                            <option value="10">10</option>
-                            <option value="20">20</option>
-                            <option value="50">50</option>
-                        </select>
-                    </div>
-                    <div class="mx-1 my-3">
-                        <label for="llm_model" class="form-label">Choose LLM Model:</label>
-                        <select id="llm_model" name="llm_model" class="form-select">
-                            <option value="gpt-4.1">GPT-4.1</option>
-                            <option value="gpt-4o" selected>GPT-4o</option>
-                            <option value="gpt-4o-mini">GPT-4o Mini</option>
-                            <option value="qwen-max" disabled style="color: #999;">Qwen Max (Not Supported)</option>
-                            <option value="qwen-plus" disabled style="color: #999;">Qwen Plus (Not Supported)</option>
-                            <option value="qwen-turbo" disabled style="color: #999;">Qwen Turbo (Not Supported)</option>
-                            <option value="deepseek-v3" disabled style="color: #999;">DeepSeek V3 (Not Supported)</option>
-                        </select>
-                        <div class="form-text">
-                            <small class="text-muted">Currently supported: GPT-4.1, GPT-4o, GPT-4o Mini</small>
-                        </div>
-                    </div>
-                    <div class="mx-1 my-4">
-                        <input type="submit" class="btn btn-primary" value="Click to search">
-                    </div>
-            </div>
-            </form>
-        </div>
-
-        <div class="col-lg-9">
-            <div id="div_ajax_info" style="display: none;">
-                <!-- ajax message placeholder -->
-            </div>
-
-            <div id="div_search_res" class="container p-3 m-1 border rounded-3 bg-white" style="display: none;">
-                <!-- search results table placeholder -->
-            </div>
-
-            <div id="div_operation" class="container p-1 mt-3 mx-1" style="display: none;">
-                <div class="btn-group" role="group">
-                    <button type="button" id="btn_crawler" class="btn btn-primary disabled me-2" data-bs-toggle="modal"
-                        data-bs-target="#crawler_modal">Get Content</button>
-                    <button type="button" id="btn_tagging" class="btn btn-primary disabled me-2" data-bs-toggle="modal"
-                        data-bs-target="#tagging_modal">FC Tagging</button>
-                    <button type="button" id="btn_summary" class="btn btn-primary disabled me-2" data-bs-toggle="modal"
-                        data-bs-target="#summary_modal">Summary</button>
-                    <button type="button" id="btn_qa" class="btn btn-primary disabled me-2" data-bs-toggle="modal"
-                        data-bs-target="#qa_modal">Question Answering</button>
                 </div>
             </div>
 
-            <div class="modal fade" id="crawler_modal">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h4 class="modal-title">Get Web Content</h4>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            <!-- Results and Operations Column -->
+            <div class="col-lg-9">
+                <!-- Alert Messages -->
+                <div id="div_ajax_info" class="mb-3" style="display: none;"></div>
+
+                <!-- Search Results -->
+                <div id="div_search_res" class="card mb-3 results-container" style="display: none;">
+                    <!-- Dynamic search results table -->
+                </div>
+
+                <!-- Operation Buttons -->
+                <div id="div_operation" class="mb-3" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="card-title mb-0">
+                                <i class="bi bi-gear me-2"></i>Operations
+                            </h6>
                         </div>
-                        <div class="modal-body">
-                            <div class="container">
+                        <div class="card-body">
+                            <div class="btn-group w-100" role="group">
+                                <button type="button" id="btn_crawler" 
+                                        class="btn btn-outline-primary disabled" 
+                                        data-bs-toggle="modal" data-bs-target="#crawler_modal">
+                                    <i class="bi bi-download me-1"></i>Get Content
+                                </button>
+                                <button type="button" id="btn_tagging" 
+                                        class="btn btn-outline-primary disabled" 
+                                        data-bs-toggle="modal" data-bs-target="#tagging_modal">
+                                    <i class="bi bi-tags me-1"></i>FC Tagging
+                                </button>
+                                <button type="button" id="btn_summary" 
+                                        class="btn btn-outline-primary disabled" 
+                                        data-bs-toggle="modal" data-bs-target="#summary_modal">
+                                    <i class="bi bi-file-text me-1"></i>Summary
+                                </button>
+                                <button type="button" id="btn_qa" 
+                                        class="btn btn-outline-primary disabled" 
+                                        data-bs-toggle="modal" data-bs-target="#qa_modal">
+                                    <i class="bi bi-question-circle me-1"></i>Q&A
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Content Crawler Modal -->
+                <div class="modal fade" id="crawler_modal" tabindex="-1" aria-labelledby="crawlerModalLabel">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="crawlerModalLabel">
+                                    <i class="bi bi-download me-2"></i>Get Web Content
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
                                 <form id="frm_crawler">
-                                    <div class="mx-1 my-3">
-                                        <div class="form-check">
-                                            <input type="checkbox" id="contents_save" name="contents_save"
-                                                class="form-check-input" checked>
-                                            <label for="contents_save" class="form-check-label">Persistent storage for
-                                                these
-                                                contents</label>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="card mb-3">
+                                                <div class="card-header">
+                                                    <h6 class="mb-0">Storage Settings</h6>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="form-check mb-2">
+                                                        <input type="checkbox" id="contents_save" class="form-check-input" checked>
+                                                        <label for="contents_save" class="form-check-label">
+                                                            Save to storage
+                                                        </label>
+                                                    </div>
+                                                    <div class="mb-2">
+                                                        <label for="contents_save_days" class="form-label">
+                                                            <small>Update if older than:</small>
+                                                        </label>
+                                                        <select id="contents_save_days" class="form-select form-select-sm">
+                                                            <option value="30">30 days</option>
+                                                            <option value="60">60 days</option>
+                                                            <option value="90" selected>90 days</option>
+                                                            <option value="180">180 days</option>
+                                                            <option value="365">365 days</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div class="mx-3 my-2">
-                                            <label for="contents_save_days" class="form-label">
-                                                <small>only update web contents older than ...</small>
-                                            </label>
-                                            <select id="contents_save_days" name="contents_save_days"
-                                                class="form-select form-select-sm">
-                                                <option value="30">30 days</option>
-                                                <option value="60">60 days</option>
-                                                <option value="90" selected>90 days</option>
-                                                <option value="180">180 days</option>
-                                                <option value="365">365 days</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="mx-1 my-3">
-                                        <div class="form-check">
-                                            <input type="checkbox" id="contents_load" name="contents_load"
-                                                class="form-check-input" checked>
-                                            <label for="contents_load" class="form-check-label">Load web contents from
-                                                persistent
-                                                storage if possible</label>
-                                        </div>
-                                        <div class="mx-3 my-2">
-                                            <label for="contents_load_days" class="form-label">
-                                                <small>only load web contents no older than ...</small>
-                                            </label>
-                                            <select id="contents_load_days" name="contents_load_days"
-                                                class="form-select form-select-sm">
-                                                <option value="30">30 days</option>
-                                                <option value="60">60 days</option>
-                                                <option value="90" selected>90 days</option>
-                                                <option value="180">180 days</option>
-                                                <option value="365">365 days</option>
-                                            </select>
+                                        <div class="col-md-6">
+                                            <div class="card mb-3">
+                                                <div class="card-header">
+                                                    <h6 class="mb-0">Load Settings</h6>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="form-check mb-2">
+                                                        <input type="checkbox" id="contents_load" class="form-check-input" checked>
+                                                        <label for="contents_load" class="form-check-label">
+                                                            Load from storage
+                                                        </label>
+                                                    </div>
+                                                    <div class="mb-2">
+                                                        <label for="contents_load_days" class="form-label">
+                                                            <small>Load if newer than:</small>
+                                                        </label>
+                                                        <select id="contents_load_days" class="form-select form-select-sm">
+                                                            <option value="30">30 days</option>
+                                                            <option value="60">60 days</option>
+                                                            <option value="90" selected>90 days</option>
+                                                            <option value="180">180 days</option>
+                                                            <option value="365">365 days</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </form>
                             </div>
-                        </div>
-                        <div class="modal-footer">
-                            <div role="group" class="btn-group">
-                                <button type="button" id="btn_crawler_submit" class="btn btn-primary me-2"
-                                    data-bs-dismiss="modal">Submit</button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            <div class="modal-footer">
+                                <button type="button" id="btn_crawler_submit" class="btn btn-primary" data-bs-dismiss="modal">
+                                    <i class="bi bi-play-fill me-1"></i>Start Crawling
+                                </button>
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="modal fade" id="tagging_modal">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h4 class="modal-title">FC Tagging</h4>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div class="container">
+                <!-- FC Tagging Modal -->
+                <div class="modal fade" id="tagging_modal" tabindex="-1" aria-labelledby="taggingModalLabel">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="taggingModalLabel">
+                                    <i class="bi bi-tags me-2"></i>FC Tagging
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
                                 <form id="frm_tagging">
-                                    <div class="mx-1 my-3">
-                                        <label for="tagging_method" class="form-label">Tagging method:</label>
-                                        <select id="tagging_method" name="tagging_method" class="form-select">
-                                            <option value="rag" selected>RAG</option>
+                                    <div class="mb-3">
+                                        <label for="tagging_method" class="form-label">Tagging Method:</label>
+                                        <select id="tagging_method" class="form-select">
+                                            <option value="rag" selected>RAG (Recommended)</option>
                                             <option value="all">Full-text</option>
                                         </select>
                                     </div>
-                                    <div class="mx-1 my-3">
-                                        <div class="form-check">
-                                            <input type="checkbox" id="tags_save" name="tags_save"
-                                                class="form-check-input" checked>
-                                            <label for="tags_save" class="form-check-label">Persistent storage for these
-                                                tags</label>
+                                    
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-header">
+                                                    <h6 class="mb-0">Storage</h6>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="form-check mb-2">
+                                                        <input type="checkbox" id="tags_save" class="form-check-input" checked>
+                                                        <label for="tags_save" class="form-check-label">Save tags</label>
+                                                    </div>
+                                                    <div>
+                                                        <label for="tags_save_days" class="form-label">
+                                                            <small>Update if older than:</small>
+                                                        </label>
+                                                        <select id="tags_save_days" class="form-select form-select-sm">
+                                                            <option value="30">30 days</option>
+                                                            <option value="60">60 days</option>
+                                                            <option value="90" selected>90 days</option>
+                                                            <option value="180">180 days</option>
+                                                            <option value="365">365 days</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div class="mx-3 my-2">
-                                            <label for="tags_save_days" class="form-label">
-                                                <small>only update tags older than ...</small>
-                                            </label>
-                                            <select id="tags_save_days" name="tags_save_days"
-                                                class="form-select form-select-sm">
-                                                <option value="30">30 days</option>
-                                                <option value="60">60 days</option>
-                                                <option value="90" selected>90 days</option>
-                                                <option value="180">180 days</option>
-                                                <option value="365">365 days</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="mx-1 my-3">
-                                        <div class="form-check">
-                                            <input type="checkbox" id="tags_load" name="tags_load"
-                                                class="form-check-input" checked>
-                                            <label for="tags_load" class="form-check-label">Load tags from persistent
-                                                storage if possible</label>
-                                        </div>
-                                        <div class="mx-3 my-2">
-                                            <label for="tags_load_days" class="form-label">
-                                                <small>only load tags no older than ...</small>
-                                            </label>
-                                            <select id="tags_load_days" name="tags_load_days"
-                                                class="form-select form-select-sm">
-                                                <option value="30">30 days</option>
-                                                <option value="60">60 days</option>
-                                                <option value="90" selected>90 days</option>
-                                                <option value="180">180 days</option>
-                                                <option value="365">365 days</option>
-                                            </select>
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-header">
+                                                    <h6 class="mb-0">Load</h6>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="form-check mb-2">
+                                                        <input type="checkbox" id="tags_load" class="form-check-input" checked>
+                                                        <label for="tags_load" class="form-check-label">Load tags</label>
+                                                    </div>
+                                                    <div>
+                                                        <label for="tags_load_days" class="form-label">
+                                                            <small>Load if newer than:</small>
+                                                        </label>
+                                                        <select id="tags_load_days" class="form-select form-select-sm">
+                                                            <option value="30">30 days</option>
+                                                            <option value="60">60 days</option>
+                                                            <option value="90" selected>90 days</option>
+                                                            <option value="180">180 days</option>
+                                                            <option value="365">365 days</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </form>
                             </div>
-                        </div>
-                        <div class="modal-footer">
-                            <div role="group" class="btn-group">
-                                <button type="button" id="btn_tagging_submit" class="btn btn-primary me-2"
-                                    data-bs-dismiss="modal">Submit</button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            <div class="modal-footer">
+                                <button type="button" id="btn_tagging_submit" class="btn btn-primary" data-bs-dismiss="modal">
+                                    <i class="bi bi-play-fill me-1"></i>Start Tagging
+                                </button>
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="modal fade" id="summary_modal">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h4 class="modal-title">Summary</h4>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div class="container">
+                <!-- Summary Modal -->
+                <div class="modal fade" id="summary_modal" tabindex="-1" aria-labelledby="summaryModalLabel">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="summaryModalLabel">
+                                    <i class="bi bi-file-text me-2"></i>Summary Generation
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
                                 <form id="frm_summary">
-                                    <div class="mx-1 my-3">
-                                        <label for="summary_max_words" class="form-label">Maximum number of
-                                            words:</label>
-                                        <select id="summary_max_words" name="summary_max_words" class="form-select">
-                                            <option value="200">200</option>
-                                            <option value="300" selected>300</option>
-                                            <option value="500">500</option>
+                                    <div class="mb-3">
+                                        <label for="summary_max_words" class="form-label">Maximum Words:</label>
+                                        <select id="summary_max_words" class="form-select">
+                                            <option value="200">200 words</option>
+                                            <option value="300" selected>300 words</option>
+                                            <option value="500">500 words</option>
                                         </select>
                                     </div>
-                                    <div class="mx-1 my-3">
-                                        <button class="btn btn-outline-secondary btn-sm" type="button"
-                                            data-bs-toggle="collapse" data-bs-target="#summary_adv_option">Advanced
-                                            Options</button>
-                                        <div id="summary_adv_option" class="collapse">
-                                            <div class="mx-1 my-3">
-                                                <label for="summary_method" class="form-label">Summarization method:</label>
-                                                <select id="summary_method" name="summary_method" class="form-select">
-                                                    <option value="map-reduce" selected>Map-Reduce</option>
-                                                    <option value="iterative-refinement">Iterative Refinement</option>
-                                                </select>
-                                            </div>
-                                            <div class="form-check mx-1 my-3">
-                                                <input type="checkbox" id="summary_clus_docs" name="summary_clus_docs"
-                                                    class="form-check-input" checked
-                                                    onchange="document.getElementById('summary_num_clus').disabled=!this.checked;">
-                                                <label for="summary_clus_docs" class="form-check-label">
-                                                    Cluster documents before summarization (with less LLM calls)
-                                                </label>
-                                            </div>
-                                            <div class="mx-1 my-3">
-                                                <label for="summary_num_clus" class="form-label">Number of
-                                                    clusters:</label>
-                                                <select id="summary_num_clus" name="summary_num_clus"
-                                                    class="form-select">
-                                                    <option value="2" selected>2</option>
-                                                    <option value="3">3</option>
-                                                    <option value="5">5</option>
-                                                </select>
+                                    
+                                    <!-- Advanced Options -->
+                                    <div class="accordion" id="summaryAdvanced">
+                                        <div class="accordion-item">
+                                            <h2 class="accordion-header">
+                                                <button class="accordion-button collapsed" type="button" 
+                                                        data-bs-toggle="collapse" data-bs-target="#summary_adv_option">
+                                                    <i class="bi bi-gear me-2"></i>Advanced Options
+                                                </button>
+                                            </h2>
+                                            <div id="summary_adv_option" class="accordion-collapse collapse">
+                                                <div class="accordion-body">
+                                                    <div class="mb-3">
+                                                        <label for="summary_method" class="form-label">Method:</label>
+                                                        <select id="summary_method" class="form-select">
+                                                            <option value="map-reduce" selected>Map-Reduce (Recommended)</option>
+                                                            <option value="iterative-refinement">Iterative Refinement</option>
+                                                        </select>
+                                                    </div>
+                                                    
+                                                    <div class="mb-3">
+                                                        <div class="form-check">
+                                                            <input type="checkbox" id="summary_clus_docs" 
+                                                                   class="form-check-input" checked
+                                                                   onchange="document.getElementById('summary_num_clus').disabled=!this.checked;">
+                                                            <label for="summary_clus_docs" class="form-check-label">
+                                                                Cluster documents (reduces LLM calls)
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div class="mb-3">
+                                                        <label for="summary_num_clus" class="form-label">Number of Clusters:</label>
+                                                        <select id="summary_num_clus" class="form-select">
+                                                            <option value="2" selected>2</option>
+                                                            <option value="3">3</option>
+                                                            <option value="5">5</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                 </form>
                             </div>
-                        </div>
-                        <div class="modal-footer">
-                            <div role="group" class="btn-group">
-                                <button type="button" id="btn_summary_submit" class="btn btn-primary me-2"
-                                    data-bs-dismiss="modal">Submit</button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            <div class="modal-footer">
+                                <button type="button" id="btn_summary_submit" class="btn btn-primary" data-bs-dismiss="modal">
+                                    <i class="bi bi-play-fill me-1"></i>Generate Summary
+                                </button>
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="modal fade" id="qa_modal">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h4 class="modal-title">Question Answering</h4>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div class="container">
+                <!-- Q&A Modal -->
+                <div class="modal fade" id="qa_modal" tabindex="-1" aria-labelledby="qaModalLabel">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="qaModalLabel">
+                                    <i class="bi bi-question-circle me-2"></i>Question & Answer
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
                                 <form id="frm_qa">
-                                    <div class="mx-1 my-3">
-                                        <label for="ta_qa_query" class="form-label">Your question:</label>
-                                        <textarea id="ta_qa_query" name="ta_qa_query" class="form-control"
-                                            rows="5"></textarea>
+                                    <div class="mb-3">
+                                        <label for="ta_qa_query" class="form-label">Your Question:</label>
+                                        <textarea id="ta_qa_query" class="form-control" rows="4" 
+                                                  placeholder="Enter your question about the news content..."></textarea>
+                                        <div class="form-text">
+                                            <small class="text-muted">
+                                                <i class="bi bi-lightbulb me-1"></i>
+                                                Tip: Ask specific questions about the company.
+                                            </small>
+                                        </div>
                                     </div>
                                 </form>
                             </div>
-                        </div>
-                        <div class="modal-footer">
-                            <div role="group" class="btn-group">
-                                <button type="button" id="btn_qa_submit" class="btn btn-primary me-2"
-                                    data-bs-dismiss="modal">Submit</button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            <div class="modal-footer">
+                                <button type="button" id="btn_qa_submit" class="btn btn-primary" data-bs-dismiss="modal">
+                                    <i class="bi bi-play-fill me-1"></i>Ask Question
+                                </button>
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div id="div_summary_res" class="container p-1 mx-1 mt-3 border bg-light rounded-3" style="display: none;">
-                <!-- summary placeholder -->
-            </div>
+                <!-- Results Display Areas -->
+                <div id="div_summary_res" class="card mb-3" style="display: none;">
+                    <div class="card-header">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-file-text me-2"></i>Summary Results
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <!-- Dynamic summary content -->
+                    </div>
+                </div>
 
-            <div id="div_qa_res" class="container p-1 mx-1 mt-3 border bg-light rounded-3" style="display: none;">
-                <!-- qa placeholder -->
+                <div id="div_qa_res" class="card mb-3" style="display: none;">
+                    <div class="card-header">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-question-circle me-2"></i>Q&A Results
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <!-- Dynamic Q&A content -->
+                    </div>
+                </div>
             </div>
         </div>
     </div>
+
+    <!-- Load JavaScript at the end for better performance -->
+    <script src="news_scr.js"></script>
 </body>
 
 </html>
