@@ -10,3 +10,4 @@ test*.*
 .env
 nohup.out
 prompt.txt
+.venv/
