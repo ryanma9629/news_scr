@@ -298,7 +298,6 @@ function getNewsContent() {
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({
-            urls: urls,
             crawler_type: 'apify',
             company_name: $('#company_name').val().trim(),
             lang: $('#lang').val(),
@@ -438,7 +437,6 @@ function performTagging() {
 
     // Call API for tagging processing
     const requestData = {
-        urls: urls,
         company_name: $('#company_name').val().trim(),
         lang: $('#lang').val(),
         tagging_method: $('#tagging_method').val(),
@@ -587,7 +585,6 @@ function performSummary() {
 
     // Collect form parameters
     const requestData = {
-        urls: urls,
         company_name: $('#company_name').val().trim(),
         lang: $('#lang').val(),
         summary_method: $('#summary_method').val(),

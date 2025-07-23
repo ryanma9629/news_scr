@@ -5,10 +5,12 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.sessions import SessionMiddleware
 
 from crawler import ApifyCrawler  # Import ApifyCrawler
 from docstore import MongoStore  # Import MongoStore for storage functionality
@@ -68,6 +70,13 @@ def cleanup_expired_sessions():
 
 app = FastAPI(title="News Search API", version="1.0.0")
 
+# Add session middleware
+app.add_middleware(
+    SessionMiddleware,
+    secret_key="your-secret-key-here",  # In production, use environment variable
+    max_age=3600,  # 1 hour
+)
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -76,6 +85,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Session management functions
+def get_session_data(request: Request) -> dict:
+    """Get session data, initialize if not exists."""
+    if "data" not in request.session:
+        request.session["data"] = {
+            "urls": [],
+            "contents": []
+        }
+    return request.session["data"]
+
+def set_session_urls(request: Request, urls: List[str]) -> None:
+    """Set URLs in session."""
+    session_data = get_session_data(request)
+    session_data["urls"] = urls
+    request.session["data"] = session_data
+
+def get_session_urls(request: Request) -> List[str]:
+    """Get URLs from session."""
+    session_data = get_session_data(request)
+    return session_data.get("urls", [])
+
+def set_session_contents(request: Request, contents: List[dict]) -> None:
+    """Set contents in session."""
+    session_data = get_session_data(request)
+    session_data["contents"] = contents
+    request.session["data"] = session_data
+
+def get_session_contents(request: Request) -> List[dict]:
+    """Get contents from session."""
+    session_data = get_session_data(request)
+    return session_data.get("contents", [])
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="."), name="static")
@@ -98,7 +139,6 @@ class SearchRequest(BaseModel):
 
 
 class CrawlerRequest(BaseModel):
-    urls: List[str] = Field(..., description="List of URLs to crawl")
     crawler_type: str = Field(default="apify", description="Crawler type ('apify')")
     company_name: str = Field(..., description="Company name for storage")
     lang: str = Field(..., description="Language code for storage")
@@ -116,7 +156,6 @@ class CrawlerRequest(BaseModel):
 
 
 class TaggingRequest(BaseModel):
-    urls: List[str] = Field(..., description="List of URLs to tag")
     company_name: str = Field(..., description="Company name for storage")
     lang: str = Field(..., description="Language code for storage")
     tagging_method: str = Field(default="rag", description="Tagging method ('rag' or 'all')")
@@ -134,7 +173,6 @@ class TaggingRequest(BaseModel):
 
 
 class SummaryRequest(BaseModel):
-    urls: List[str] = Field(..., description="List of URLs to summarize")
     company_name: str = Field(..., description="Company name for storage")
     lang: str = Field(..., description="Language code for storage")
     summary_method: str = Field(default="map-reduce", description="Summary method ('map-reduce' or 'iterative-refinement')")
@@ -356,7 +394,7 @@ async def search_news(http_request: Request, request: SearchRequest):
 
 
 @app.post("/api/crawler", response_model=CrawlerResponse)
-async def crawl_news_content(request: CrawlerRequest):
+async def crawl_news_content(request: CrawlerRequest, http_request: Request):
     """
     Crawl content from news URLs using ApifyCrawler with storage and session support.
     """
@@ -421,10 +459,10 @@ async def crawl_news_content(request: CrawlerRequest):
             except Exception as e:
                 logger.error(f"Error loading from MongoDB: {str(e)}")
                 # If storage loading fails, crawl all URLs
-                urls_to_crawl = request.urls
+                urls_to_crawl = urls
         else:
             # If contents_load is disabled, crawl all URLs
-            urls_to_crawl = request.urls
+            urls_to_crawl = urls
 
         # Step 2: Crawl remaining URLs
         if urls_to_crawl:
@@ -530,11 +568,12 @@ async def crawl_news_content(request: CrawlerRequest):
     except Exception as e:
         logger.error(f"Crawler error: {str(e)}")
         # Even in case of general error, try to return failed results for all URLs
+        urls = get_session_urls(http_request)
         failed_results = [
             CrawlerResultResponse(
                 url=url, success=False, content=None, error=f"System error: {str(e)}"
             )
-            for url in request.urls
+            for url in urls
         ]
 
         return CrawlerResponse(
@@ -546,7 +585,7 @@ async def crawl_news_content(request: CrawlerRequest):
 
 
 @app.post("/api/tagging", response_model=TaggingResponse)
-async def tag_news_content(request: TaggingRequest):
+async def tag_news_content(request: TaggingRequest, http_request: Request):
     """
     Perform FC Tagging on news content with storage and session support.
     """
@@ -612,10 +651,10 @@ async def tag_news_content(request: TaggingRequest):
             except Exception as e:
                 logger.error(f"Error loading tags from MongoDB: {str(e)}")
                 # If storage loading fails, tag all URLs
-                urls_to_tag = request.urls
+                urls_to_tag = urls
         else:
             # If tags_load is disabled, tag all URLs
-            urls_to_tag = request.urls
+            urls_to_tag = urls
 
         # Step 2: Tag remaining URLs
         if urls_to_tag:
@@ -775,11 +814,12 @@ async def tag_news_content(request: TaggingRequest):
     except Exception as e:
         logger.error(f"Tagging error: {str(e)}")
         # Even in case of general error, try to return failed results for all URLs
+        urls = get_session_urls(http_request)
         failed_results = [
             TaggingResultResponse(
                 url=url, success=False, crime_type=None, probability=None, error=f"System error: {str(e)}"
             )
-            for url in request.urls
+            for url in urls
         ]
 
         return TaggingResponse(
@@ -791,7 +831,7 @@ async def tag_news_content(request: TaggingRequest):
 
 
 @app.post("/api/summary", response_model=SummaryResponse)
-async def summarize_news_content(request: SummaryRequest):
+async def summarize_news_content(request: SummaryRequest, http_request: Request):
     """
     Perform summarization on news content from session.
     """
