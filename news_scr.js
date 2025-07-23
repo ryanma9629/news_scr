@@ -79,11 +79,14 @@ function performSearch() {
     
     // Make API request
     $.ajax({
-        url: 'http://127.0.0.1:8280/api/search',
+        url: '/api/search',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(formData),
         timeout: 30000,
+        xhrFields: {
+            withCredentials: true
+        },
         beforeSend: function() {
             showAlert(`
                 <div class="d-flex align-items-center">
@@ -295,7 +298,7 @@ function getNewsContent() {
 
     // Call API to get content
     $.ajax({
-        url: 'http://127.0.0.1:8280/api/crawler',
+        url: '/api/crawler',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({
@@ -310,6 +313,9 @@ function getNewsContent() {
             session_id: currentSessionId
         }),
         timeout: 120000,
+        xhrFields: {
+            withCredentials: true
+        },
         beforeSend: function() {
             console.log('Get content AJAX beforeSend triggered');
             // Disable get content button to prevent duplicate submission
@@ -456,11 +462,14 @@ function performTagging() {
     };
     
     $.ajax({
-        url: 'http://127.0.0.1:8280/api/tagging',
+        url: '/api/tagging',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(requestData),
         timeout: 180000,
+        xhrFields: {
+            withCredentials: true
+        },
         beforeSend: function() {
             console.log('Tagging AJAX beforeSend triggered');
             // Disable tagging button to prevent duplicate submission
@@ -610,11 +619,14 @@ function performSummary() {
     
     // Call API for summary processing
     $.ajax({
-        url: 'http://127.0.0.1:8280/api/summary',
+        url: '/api/summary',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(requestData),
         timeout: 300000,
+        xhrFields: {
+            withCredentials: true
+        },
         beforeSend: function() {
             console.log('Summary AJAX beforeSend triggered');
             // Disable summary button to prevent duplicate submission
@@ -785,11 +797,14 @@ function performQA() {
     
     // Call API for Q&A processing
     $.ajax({
-        url: 'http://127.0.0.1:8280/api/qa',
+        url: '/api/qa',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(requestData),
         timeout: 300000,
+        xhrFields: {
+            withCredentials: true
+        },
         beforeSend: function() {
             console.log('QA AJAX beforeSend triggered');
             // Disable QA button to prevent duplicate submission

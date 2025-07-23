@@ -197,13 +197,23 @@ def setup_app_configuration():
     """Setup FastAPI app with middleware and static files."""
     app = FastAPI(title="News Search API", version="1.0.0")
     
-    # Add CORS middleware
+    # Add CORS middleware with proper HTTPS support
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[
+            "https://localhost:8280",
+            "https://127.0.0.1:8280", 
+            "http://localhost:8280",
+            "http://127.0.0.1:8280",
+            "https://localhost",
+            "https://127.0.0.1",
+            "http://localhost",
+            "http://127.0.0.1"
+        ],
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
+        expose_headers=["*"],
     )
     
     # Mount static files
@@ -1124,6 +1134,7 @@ app.mount("/", StaticFiles(directory=".", html=True), name="root")
 
 if __name__ == "__main__":
     import uvicorn
+    import os
 
     # Get server configuration
     config = get_server_config()
@@ -1135,5 +1146,33 @@ if __name__ == "__main__":
         logger.warning(f"Preferred port {preferred_port} not available, using fallback port {fallback_port}")
         config["port"] = fallback_port
     
+    # Prepare uvicorn run arguments
+    run_args = {
+        "app": "serv_fastapi:app",
+        "host": config["host"],
+        "port": config["port"],
+        "reload": config["reload"]
+    }
+    
+    # Add SSL configuration if certificates are available
+    ssl_keyfile = config.get("ssl_keyfile")
+    ssl_certfile = config.get("ssl_certfile")
+    
+    # Check for default certificate files if not explicitly set
+    if not ssl_keyfile and os.path.exists("key.pem"):
+        ssl_keyfile = "key.pem"
+    if not ssl_certfile and os.path.exists("cert.pem"):
+        ssl_certfile = "cert.pem"
+    
+    if ssl_keyfile and ssl_certfile and os.path.exists(ssl_keyfile) and os.path.exists(ssl_certfile):
+        run_args["ssl_keyfile"] = ssl_keyfile
+        run_args["ssl_certfile"] = ssl_certfile
+        logger.info(f"Starting HTTPS server on https://{config['host']}:{config['port']}")
+        logger.info(f"Using SSL certificate: {ssl_certfile}, key: {ssl_keyfile}")
+    else:
+        logger.warning("SSL certificates not found or not configured. Starting HTTP server.")
+        logger.warning("To enable HTTPS, ensure cert.pem and key.pem files exist, or set SSL_KEYFILE and SSL_CERTFILE environment variables.")
+        logger.info(f"Starting HTTP server on http://{config['host']}:{config['port']}")
+    
     # Run the application
-    uvicorn.run("serv_fastapi:app", host=config["host"], port=config["port"], reload=config["reload"])
+    uvicorn.run(**run_args)
