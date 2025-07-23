@@ -1,21 +1,25 @@
-import logging
 import hashlib
-from pathlib import Path
-from typing import List, Optional, Dict, Tuple
+import logging
+import socket
 from datetime import datetime, timedelta
 from functools import wraps
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from langchain_core.documents import Document
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
-from crawler import ApifyCrawler  # Import ApifyCrawler
-from docstore import MongoStore  # Import MongoStore for storage functionality
-from query import QAWithContext  # Import QAWithContext for QA functionality
-from summarization import MapReduceSummarization, RefinementSummarization  # Import summarization classes
-from tagging import FCTagging  # Import FCTagging for tagging functionality
+from crawler import ApifyCrawler
+from docstore import MongoStore
+from query import QAWithContext
+from summarization import MapReduceSummarization, RefinementSummarization
+from tagging import FCTagging
 from websearch import BingSearch, GoogleSerperNews
 
 # Configuration constants
@@ -25,6 +29,16 @@ DEFAULT_SESSION_TIMEOUT_HOURS = 2
 DEFAULT_STORAGE_DAYS = 90
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8280
+
+# Supported LLM deployments mapping
+SUPPORTED_LLM_DEPLOYMENTS = {
+    "gpt-4.1": "gpt-4.1",
+    "gpt-4o": "gpt-4o", 
+    "gpt-4o-mini": "gpt-4o-mini"
+}
+
+# Default LLM configuration
+DEFAULT_LLM_DEPLOYMENT = "gpt-4o"
 
 # Language mappings and search configurations
 LANGUAGE_DISPLAY_MAP = {
@@ -61,83 +75,90 @@ logger = logging.getLogger(__name__)
 SESSION_STORE = {}
 SESSION_TIMEOUT_HOURS = DEFAULT_SESSION_TIMEOUT_HOURS
 
+
 # Common utility functions
 def require_session(strict: bool = True):
-    """Decorator to validate session requirement and cleanup expired sessions.
-    
-    Args:
-        strict: If True, raises error when session_id is missing. 
-                If False, allows missing session_id (for endpoints that can auto-generate).
-    """
+    """Decorator to validate session requirement and cleanup expired sessions."""
+
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
             cleanup_expired_sessions()
-            
+
             # Extract request object from args
             request = None
             for arg in args:
-                if hasattr(arg, 'session_id'):
+                if hasattr(arg, "session_id"):
                     request = arg
                     break
-            
+
             if strict and (not request or not request.session_id):
                 raise HTTPException(status_code=400, detail="Session ID is required")
-            
+
             return await func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
 def init_llm_and_embeddings(deployment: str = "gpt-4o", model: str = "gpt-4o"):
     """Initialize LLM and embeddings with common configuration."""
-    from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+    # Validate LLM deployment
+    if deployment not in SUPPORTED_LLM_DEPLOYMENTS:
+        raise ValueError(f"Unsupported LLM deployment: {deployment}. Supported deployments: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}")
     
-    llm = AzureChatOpenAI(
-        azure_deployment=deployment,
-        model=model,
-        temperature=0,
-    )
-    
+    azure_deployment = SUPPORTED_LLM_DEPLOYMENTS[deployment]
+    llm = AzureChatOpenAI(azure_deployment=azure_deployment, model=model, temperature=0)
     emb = AzureOpenAIEmbeddings(model="text-embedding-3-small")
-    
     return llm, emb
+
+
+def validate_llm_deployment(llm_model: str) -> str:
+    """Validate and return the correct Azure deployment name for the given LLM model."""
+    if llm_model not in SUPPORTED_LLM_DEPLOYMENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported LLM model: {llm_model}. Currently supported models: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}"
+        )
+    return SUPPORTED_LLM_DEPLOYMENTS[llm_model]
+
+
+def load_from_storage_with_fallback(
+    mongo_store: MongoStore, urls: List[str], session_id: str, days: int = 0
+) -> Tuple[List[Dict[str, str]], List[str]]:
+    """Load contents from storage with session fallback."""
+    session_data = get_session_data(session_id)
+    session_contents = session_data.get("web_contents", {})
+
+    contents = []
+    missing_urls = []
+
+    for url in urls:
+        if url in session_contents:
+            contents.append({"url": url, "text": session_contents[url]})
+        else:
+            missing_urls.append(url)
+
+    # Try MongoDB for missing URLs
+    if missing_urls:
+        try:
+            fallback_contents = mongo_store.load_contents(missing_urls, days=days)
+            contents.extend(fallback_contents)
+
+            # Update missing URLs list
+            fallback_urls = {content["url"] for content in fallback_contents}
+            missing_urls = [url for url in missing_urls if url not in fallback_urls]
+        except Exception as e:
+            logger.error(f"Error loading from MongoDB: {e}")
+
+    return contents, missing_urls
 
 
 def get_session_contents_safe(session_id: str) -> Dict[str, str]:
     """Safely get web contents from session."""
     session_data = get_session_data(session_id)
     return session_data.get("web_contents", {})
-
-
-def load_from_storage_with_fallback(mongo_store: MongoStore, urls: List[str], 
-                                  session_id: str, days: int = 0) -> Tuple[List[Dict[str, str]], List[str]]:
-    """Load contents from storage with session fallback."""
-    # First try session
-    session_contents = get_session_contents_safe(session_id)
-    
-    contents = []
-    missing_urls = []
-    
-    for url in urls:
-        if url in session_contents:
-            contents.append({"url": url, "text": session_contents[url]})
-        else:
-            missing_urls.append(url)
-    
-    # Then try MongoDB for missing URLs
-    if missing_urls:
-        try:
-            fallback_contents = mongo_store.load_contents(missing_urls, days=days)
-            contents.extend(fallback_contents)
-            
-            # Update missing URLs list
-            fallback_urls = {content["url"] for content in fallback_contents}
-            missing_urls = [url for url in missing_urls if url not in fallback_urls]
-        except Exception as e:
-            logger.error(f"Error loading from MongoDB: {e}")
-    
-    return contents, missing_urls
 
 
 def handle_storage_operation(operation_func, operation_name: str, *args, **kwargs):
@@ -148,8 +169,8 @@ def handle_storage_operation(operation_func, operation_name: str, *args, **kwarg
         return result
     except Exception as e:
         logger.error(f"Error {operation_name}: {e}")
-        # Don't fail the entire request if storage fails
         return None
+
 
 def generate_session_id(ip: str, user_agent: str = "") -> str:
     """Generate session ID based on client info and timestamp."""
@@ -157,13 +178,14 @@ def generate_session_id(ip: str, user_agent: str = "") -> str:
     content = f"{ip}_{user_agent}_{timestamp}"
     return hashlib.md5(content.encode()).hexdigest()
 
+
 def get_session_data(session_id: str) -> dict:
     """Get session data for given session ID."""
     session = SESSION_STORE.get(session_id, {})
     if session:
-        # Update last accessed time
         session["last_accessed"] = datetime.now()
     return session
+
 
 def update_session_data(session_id: str, key: str, value):
     """Update session data for given session ID and key."""
@@ -173,59 +195,108 @@ def update_session_data(session_id: str, key: str, value):
             "last_accessed": datetime.now(),
             "search_results": [],
             "web_contents": {},
-            "user_context": {}
+            "user_context": {},
         }
-    
+
     SESSION_STORE[session_id][key] = value
     SESSION_STORE[session_id]["last_accessed"] = datetime.now()
+
 
 def cleanup_expired_sessions():
     """Remove expired sessions."""
     cutoff_time = datetime.now() - timedelta(hours=SESSION_TIMEOUT_HOURS)
-    expired_sessions = []
-    
-    for session_id, session_data in SESSION_STORE.items():
-        if session_data.get("last_accessed", datetime.now()) < cutoff_time:
-            expired_sessions.append(session_id)
-    
+    expired_sessions = [
+        session_id
+        for session_id, session_data in SESSION_STORE.items()
+        if session_data.get("last_accessed", datetime.now()) < cutoff_time
+    ]
+
     for session_id in expired_sessions:
         del SESSION_STORE[session_id]
         logger.info(f"Cleaned up expired session: {session_id}")
+
+
+# Consolidated validation and processing utilities
+def validate_session_and_urls(
+    session_id: Optional[str], urls: List[str], operation_name: str
+):
+    """Centralized validation for session ID and URLs."""
+    if not session_id:
+        return (
+            False,
+            f"Session is required. Please search for news and get content first, then try {operation_name} again.",
+        )
+
+    if not urls:
+        return False, f"No URLs provided for {operation_name}"
+
+    return True, ""
+
+
+def get_contents_from_session_with_validation(
+    session_id: str, urls: List[str], operation_name: str
+):
+    """Get contents from session with comprehensive validation."""
+    session_data = get_session_data(session_id)
+    session_contents = session_data.get("web_contents", {})
+    contents = []
+    missing_urls = []
+
+    for url in urls:
+        if url in session_contents:
+            contents.append({"url": url, "text": session_contents[url]})
+        else:
+            missing_urls.append(url)
+
+    if missing_urls:
+        logger.warning(
+            f"URLs not found in session for {operation_name}: {missing_urls}"
+        )
+
+    if not contents:
+        return (
+            [],
+            missing_urls,
+            f"Content not found for {operation_name}. Please get content first.",
+        )
+
+    return contents, missing_urls, None
+
 
 # Configuration utilities
 def setup_app_configuration():
     """Setup FastAPI app with middleware and static files."""
     app = FastAPI(title="News Search API", version="1.0.0")
-    
+
     # Add CORS middleware with proper HTTPS support
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
             "https://localhost:8280",
-            "https://127.0.0.1:8280", 
+            "https://127.0.0.1:8280",
             "http://localhost:8280",
             "http://127.0.0.1:8280",
             "https://localhost",
             "https://127.0.0.1",
             "http://localhost",
-            "http://127.0.0.1"
+            "http://127.0.0.1",
         ],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
         expose_headers=["*"],
     )
-    
+
     # Mount static files
     app.mount("/static", StaticFiles(directory="."), name="static")
-    
+
     return app
 
 
 def get_server_config():
     """Get server configuration from environment or defaults."""
     import os
-    
+
     config = {
         "host": os.getenv("HOST", DEFAULT_HOST),
         "port": int(os.getenv("PORT", str(DEFAULT_PORT))),
@@ -233,17 +304,15 @@ def get_server_config():
         "ssl_keyfile": os.getenv("SSL_KEYFILE"),
         "ssl_certfile": os.getenv("SSL_CERTFILE"),
     }
-    
+
     return config
 
 
 def check_port_availability(port: int) -> bool:
     """Check if a port is available."""
-    import socket
-    
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('127.0.0.1', port))
+            s.bind(("127.0.0.1", port))
             return True
     except OSError:
         return False
@@ -254,11 +323,10 @@ def get_fallback_port(preferred_port: int) -> int:
     for port in range(preferred_port, preferred_port + 100):
         if check_port_availability(port):
             return port
-    
+
     # If no port found in range, return a random available port
-    import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('127.0.0.1', 0))
+        s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 
@@ -278,7 +346,9 @@ class SearchRequest(BaseModel):
         ..., ge=1, le=100, description="Number of results to return"
     )
     llm_model: str = Field(..., description="LLM model to use")
-    session_id: Optional[str] = Field(None, description="Session ID for data persistence")
+    session_id: Optional[str] = Field(
+        None, description="Session ID for data persistence"
+    )
 
 
 class CrawlerRequest(BaseModel):
@@ -296,14 +366,19 @@ class CrawlerRequest(BaseModel):
     contents_load_days: int = Field(
         default=90, description="Only load contents no older than this many days"
     )
-    session_id: Optional[str] = Field(None, description="Session ID for data persistence")
+    session_id: Optional[str] = Field(
+        None, description="Session ID for data persistence"
+    )
 
 
 class TaggingRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to tag")
     company_name: str = Field(..., description="Company name for storage")
     lang: str = Field(..., description="Language code for storage")
-    tagging_method: str = Field(default="rag", description="Tagging method ('rag' or 'all')")
+    tagging_method: str = Field(
+        default="rag", description="Tagging method ('rag' or 'all')"
+    )
+    llm_model: str = Field(default="gpt-4o", description="LLM model to use")
     tags_save: bool = Field(default=True, description="Save tags to storage")
     tags_load: bool = Field(
         default=True, description="Load tags from storage if possible"
@@ -314,18 +389,32 @@ class TaggingRequest(BaseModel):
     tags_load_days: int = Field(
         default=90, description="Only load tags no older than this many days"
     )
-    session_id: Optional[str] = Field(None, description="Session ID for data persistence")
+    session_id: Optional[str] = Field(
+        None, description="Session ID for data persistence"
+    )
 
 
 class SummaryRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to summarize")
     company_name: str = Field(..., description="Company name for storage")
     lang: str = Field(..., description="Language code for storage")
-    summary_method: str = Field(default="map-reduce", description="Summary method ('map-reduce' or 'iterative-refinement')")
-    max_words: int = Field(default=300, description="Maximum number of words in summary")
-    cluster_docs: bool = Field(default=True, description="Whether to cluster documents before summarization")
-    num_clusters: int = Field(default=2, description="Number of clusters for document clustering")
-    session_id: Optional[str] = Field(None, description="Session ID for data persistence")
+    summary_method: str = Field(
+        default="map-reduce",
+        description="Summary method ('map-reduce' or 'iterative-refinement')",
+    )
+    llm_model: str = Field(default="gpt-4o", description="LLM model to use")
+    max_words: int = Field(
+        default=300, description="Maximum number of words in summary"
+    )
+    cluster_docs: bool = Field(
+        default=True, description="Whether to cluster documents before summarization"
+    )
+    num_clusters: int = Field(
+        default=2, description="Number of clusters for document clustering"
+    )
+    session_id: Optional[str] = Field(
+        None, description="Session ID for data persistence"
+    )
 
 
 class QARequest(BaseModel):
@@ -333,7 +422,10 @@ class QARequest(BaseModel):
     company_name: str = Field(..., description="Company name for context")
     lang: str = Field(..., description="Language code")
     urls: List[str] = Field(..., description="URLs to use as context")
-    session_id: Optional[str] = Field(None, description="Session ID for data persistence")
+    llm_model: str = Field(default="gpt-4o-mini", description="LLM model to use")
+    session_id: Optional[str] = Field(
+        None, description="Session ID for data persistence"
+    )
 
 
 # Response models
@@ -438,8 +530,22 @@ async def search_news(http_request: Request, request: SearchRequest):
         client_ip = http_request.client.host if http_request.client else "unknown"
         user_agent = http_request.headers.get("user-agent", "")
         session_id = request.session_id or generate_session_id(client_ip, user_agent)
-        
-        logger.info(f"Search request - company: {request.company_name}, engine: {request.search_engine}, session: {session_id}")
+
+        logger.info(
+            f"Search request - company: {request.company_name}, engine: {request.search_engine}, session: {session_id}"
+        )
+
+        # Validate LLM model
+        try:
+            validate_llm_deployment(request.llm_model)
+        except HTTPException as e:
+            return SearchResponse(
+                success=False,
+                results=[],
+                total_results=0,
+                message=str(e.detail),
+                session_id=session_id,
+            )
 
         # Generate search keywords
         keywords = get_search_keywords(
@@ -463,7 +569,7 @@ async def search_news(http_request: Request, request: SearchRequest):
                 results=[],
                 total_results=0,
                 message="Search failed, please check network connection or API configuration",
-                session_id=session_id
+                session_id=session_id,
             )
 
         # Convert results to response format
@@ -473,61 +579,65 @@ async def search_news(http_request: Request, request: SearchRequest):
         ]
 
         # Store search results and user context in session
-        update_session_data(session_id, "search_results", [
-            {"url": result["url"], "title": result["title"]} for result in results
-        ])
-        update_session_data(session_id, "user_context", {
-            "company_name": request.company_name,
-            "lang": request.lang,
-            "search_params": {
-                "search_suffix": request.search_suffix,
-                "search_engine": request.search_engine,
-                "num_results": request.num_results,
-                "llm_model": request.llm_model
-            }
-        })
+        update_session_data(
+            session_id,
+            "search_results",
+            [{"url": result["url"], "title": result["title"]} for result in results],
+        )
+        update_session_data(
+            session_id,
+            "user_context",
+            {
+                "company_name": request.company_name,
+                "lang": request.lang,
+                "search_params": {
+                    "search_suffix": request.search_suffix,
+                    "search_engine": request.search_engine,
+                    "num_results": request.num_results,
+                    "llm_model": request.llm_model,
+                },
+            },
+        )
 
         return SearchResponse(
             success=True,
             results=search_results,
             total_results=len(search_results),
             message=f"Successfully found {len(search_results)} news articles",
-            session_id=session_id
+            session_id=session_id,
         )
 
     except Exception as e:
         logger.error(f"Search error: {str(e)}")
         return SearchResponse(
-            success=False, 
-            results=[], 
-            total_results=0, 
+            success=False,
+            results=[],
+            total_results=0,
             message=f"Search error: {str(e)}",
-            session_id=request.session_id
+            session_id=request.session_id,
         )
 
 
 @app.post("/api/crawler", response_model=CrawlerResponse)
 @require_session(strict=False)
 async def crawl_news_content(request: CrawlerRequest):
-    """
-    Crawl content from news URLs using ApifyCrawler with storage and session support.
-    """
+    """Crawl content from news URLs using ApifyCrawler with storage and session support."""
     try:
         session_id = request.session_id
-        logger.info(f"Crawler request received - session_id: {session_id}, URLs: {len(request.urls)}")
-        
-        # Handle missing session ID
-        if not session_id:
-            logger.warning("No session ID provided in crawler request")
-            return CrawlerResponse(
-                success=False, results=[], total_results=0,
-                message="Session is required. Please search for news first, then try getting content again."
-            )
+        logger.info(
+            f"Crawler request received - session_id: {session_id}, URLs: {len(request.urls)}"
+        )
 
-        if not request.urls:
+        # Validate session and URLs
+        is_valid, validation_error = validate_session_and_urls(
+            session_id, request.urls, "crawling"
+        )
+        if not is_valid:
             return CrawlerResponse(
-                success=False, results=[], total_results=0,
-                message="No URLs provided for crawling"
+                success=False,
+                results=[],
+                total_results=0,
+                message=validation_error or "Validation failed",
             )
 
         # Initialize MongoStore
@@ -537,23 +647,35 @@ async def crawl_news_content(request: CrawlerRequest):
 
         # Step 1: Load from storage if enabled
         if request.contents_load:
-            logger.info(f"Loading contents from MongoDB (within {request.contents_load_days} days)...")
-            contents_from_db = handle_storage_operation(
-                mongo_store.load_contents,
-                "loaded contents from MongoDB",
-                request.urls, days=request.contents_load_days
-            ) or []
+            logger.info(
+                f"Loading contents from MongoDB (within {request.contents_load_days} days)..."
+            )
+            contents_from_db = (
+                handle_storage_operation(
+                    mongo_store.load_contents,
+                    "loaded contents from MongoDB",
+                    request.urls,
+                    days=request.contents_load_days,
+                )
+                or []
+            )
 
             # Add stored contents to results
             stored_urls = {content["url"] for content in contents_from_db}
             for content in contents_from_db:
-                results.append(CrawlerResultResponse(
-                    url=content["url"], success=True,
-                    content=content["text"], error=None
-                ))
+                results.append(
+                    CrawlerResultResponse(
+                        url=content["url"],
+                        success=True,
+                        content=content["text"],
+                        error=None,
+                    )
+                )
 
             urls_to_crawl = [url for url in request.urls if url not in stored_urls]
-            logger.info(f"Found {len(contents_from_db)} URLs in MongoDB, {len(urls_to_crawl)} URLs to crawl")
+            logger.info(
+                f"Found {len(contents_from_db)} URLs in MongoDB, {len(urls_to_crawl)} URLs to crawl"
+            )
         else:
             urls_to_crawl = request.urls
 
@@ -565,81 +687,115 @@ async def crawl_news_content(request: CrawlerRequest):
 
             try:
                 documents = await crawler.get(urls_to_crawl)
-                url_to_doc = {doc.metadata.get("source", ""): doc for doc in documents if doc.metadata.get("source")}
+                url_to_doc = {
+                    doc.metadata.get("source", ""): doc
+                    for doc in documents
+                    if doc.metadata.get("source")
+                }
 
                 for url in urls_to_crawl:
                     if url in url_to_doc and url_to_doc[url].page_content.strip():
                         content = url_to_doc[url].page_content
-                        results.append(CrawlerResultResponse(url=url, success=True, content=content, error=None))
+                        results.append(
+                            CrawlerResultResponse(
+                                url=url, success=True, content=content, error=None
+                            )
+                        )
                         crawled_contents.append({"url": url, "text": content})
                     else:
-                        error_msg = "Content is empty" if url in url_to_doc else "Content not found for this URL"
-                        results.append(CrawlerResultResponse(url=url, success=False, content=None, error=error_msg))
+                        error_msg = (
+                            "Content is empty"
+                            if url in url_to_doc
+                            else "Content not found for this URL"
+                        )
+                        results.append(
+                            CrawlerResultResponse(
+                                url=url, success=False, content=None, error=error_msg
+                            )
+                        )
 
             except Exception as crawler_error:
                 logger.error(f"Crawler execution failed: {crawler_error}")
                 for url in urls_to_crawl:
-                    results.append(CrawlerResultResponse(
-                        url=url, success=False, content=None,
-                        error=f"Crawling failed: {crawler_error}"
-                    ))
+                    results.append(
+                        CrawlerResultResponse(
+                            url=url,
+                            success=False,
+                            content=None,
+                            error=f"Crawling failed: {crawler_error}",
+                        )
+                    )
 
         # Step 3: Save to storage and session
         if request.contents_save and crawled_contents:
             handle_storage_operation(
                 mongo_store.save_contents,
                 "saved contents to MongoDB",
-                crawled_contents, days=request.contents_save_days
+                crawled_contents,
+                days=request.contents_save_days,
             )
 
         # Store all contents in session
         all_contents = {content["url"]: content["text"] for content in contents_from_db}
-        all_contents.update({r.url: r.content for r in results if r.success and r.content})
-        
-        # session_id is guaranteed to exist due to @require_session decorator
+        all_contents.update(
+            {r.url: r.content for r in results if r.success and r.content}
+        )
+
         if session_id:
             update_session_data(session_id, "web_contents", all_contents)
 
         success_count = sum(1 for r in results if r.success)
         return CrawlerResponse(
-            success=True, results=results, total_results=len(results),
-            message=f"Crawling completed: {success_count} successful, {len(results) - success_count} failed"
+            success=True,
+            results=results,
+            total_results=len(results),
+            message=f"Crawling completed: {success_count} successful, {len(results) - success_count} failed",
         )
 
     except Exception as e:
         logger.error(f"Crawler error: {e}")
-        failed_results = [
-            CrawlerResultResponse(url=url, success=False, content=None, error=f"System error: {e}")
-            for url in request.urls
-        ]
+        failed_results = create_failed_result_responses(
+            request.urls, CrawlerResultResponse, f"System error: {e}"
+        )
         return CrawlerResponse(
-            success=False, results=failed_results, total_results=len(failed_results),
-            message=f"System error: {e}"
+            success=False,
+            results=failed_results,
+            total_results=len(failed_results),
+            message=f"System error: {e}",
         )
 
 
 @app.post("/api/tagging", response_model=TaggingResponse)
 @require_session(strict=False)
 async def tag_news_content(request: TaggingRequest):
-    """
-    Perform FC Tagging on news content with storage and session support.
-    """
+    """Perform FC Tagging on news content with storage and session support."""
     try:
         session_id = request.session_id
-        logger.info(f"Tagging request received - session_id: {session_id}, URLs: {len(request.urls)}")
-        
-        # Handle missing session ID
-        if not session_id:
-            logger.warning("No session ID provided in tagging request")
+        logger.info(
+            f"Tagging request received - session_id: {session_id}, URLs: {len(request.urls)}"
+        )
+
+        # Validate LLM model
+        try:
+            azure_deployment = validate_llm_deployment(request.llm_model)
+        except HTTPException as e:
             return TaggingResponse(
-                success=False, results=[], total_results=0,
-                message="Session is required. Please search for news and get content first, then try tagging again."
+                success=False,
+                results=[],
+                total_results=0,
+                message=str(e.detail),
             )
 
-        if not request.urls:
+        # Validate session and URLs
+        is_valid, validation_error = validate_session_and_urls(
+            session_id, request.urls, "tagging"
+        )
+        if not is_valid:
             return TaggingResponse(
-                success=False, results=[], total_results=0,
-                message="No URLs provided for tagging"
+                success=False,
+                results=[],
+                total_results=0,
+                message=validation_error or "Validation failed",
             )
 
         # Initialize MongoStore
@@ -649,32 +805,45 @@ async def tag_news_content(request: TaggingRequest):
         # Step 1: Load existing tags from storage
         tags_from_db = []
         if request.tags_load:
-            logger.info(f"Loading tags from MongoDB (within {request.tags_load_days} days)...")
-            tags_from_db = handle_storage_operation(
-                mongo_store.load_tags,
-                "loaded tags from MongoDB",
-                request.urls, method=request.tagging_method,
-                llm_name="gpt-4o", days=request.tags_load_days
-            ) or []
+            logger.info(
+                f"Loading tags from MongoDB (within {request.tags_load_days} days)..."
+            )
+            tags_from_db = (
+                handle_storage_operation(
+                    mongo_store.load_tags,
+                    "loaded tags from MongoDB",
+                    request.urls,
+                    method=request.tagging_method,
+                    llm_name=request.llm_model,  # Use the requested model
+                    days=request.tags_load_days,
+                )
+                or []
+            )
 
             # Add stored tags to results
             stored_urls = {tag["url"] for tag in tags_from_db}
             for tag in tags_from_db:
-                results.append(TaggingResultResponse(
-                    url=tag["url"], success=True,
-                    crime_type=tag.get("crime_type"), 
-                    probability=tag.get("probability"), error=None
-                ))
+                results.append(
+                    TaggingResultResponse(
+                        url=tag["url"],
+                        success=True,
+                        crime_type=tag.get("crime_type"),
+                        probability=tag.get("probability"),
+                        error=None,
+                    )
+                )
 
             urls_to_tag = [url for url in request.urls if url not in stored_urls]
-            logger.info(f"Found {len(tags_from_db)} URLs in MongoDB, {len(urls_to_tag)} URLs to tag")
+            logger.info(
+                f"Found {len(tags_from_db)} URLs in MongoDB, {len(urls_to_tag)} URLs to tag"
+            )
         else:
             urls_to_tag = request.urls
 
         # Step 2: Tag remaining URLs
         if urls_to_tag:
             logger.info(f"Tagging {len(urls_to_tag)} URLs")
-            
+
             # Get contents with fallback
             contents_to_tag, urls_without_content = load_from_storage_with_fallback(
                 mongo_store, urls_to_tag, session_id or ""
@@ -682,76 +851,98 @@ async def tag_news_content(request: TaggingRequest):
 
             # Mark URLs without content as failed
             for url in urls_without_content:
-                results.append(TaggingResultResponse(
-                    url=url, success=False, crime_type=None, 
-                    probability=None, error="Content not found for this URL, please get content first"
-                ))
+                results.append(
+                    TaggingResultResponse(
+                        url=url,
+                        success=False,
+                        crime_type=None,
+                        probability=None,
+                        error="Content not found for this URL, please get content first",
+                    )
+                )
 
             if contents_to_tag:
-                # Initialize tagging components
-                llm, emb = init_llm_and_embeddings()
+                # Initialize tagging components with the validated LLM model
+                llm, emb = init_llm_and_embeddings(azure_deployment, request.llm_model)
                 fc_tagging = FCTagging(llm, emb)
-                
-                from langchain_core.documents import Document
-                from langchain_text_splitters import RecursiveCharacterTextSplitter
-                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=DEFAULT_CHUNK_SIZE, chunk_overlap=DEFAULT_CHUNK_OVERLAP
+                )
 
                 tagged_results = []
                 for content in contents_to_tag:
                     url, text = content["url"], content["text"]
-                    
+
                     try:
-                        docs = text_splitter.split_documents([Document(page_content=text)])
-                        
+                        docs = text_splitter.split_documents(
+                            [Document(page_content=text)]
+                        )
+
                         # Perform tagging based on method
                         if request.tagging_method == "rag":
                             tag_result = await fc_tagging.tagging_rag(docs)
                         else:  # "all" for Full-text
                             tag_result = await fc_tagging.tagging_combine(docs)
 
-                        results.append(TaggingResultResponse(
-                            url=url, success=True,
-                            crime_type=tag_result.get("crime_type"),
-                            probability=tag_result.get("probability"), error=None
-                        ))
-                        
-                        tagged_results.append({
-                            "url": url, "crime_type": tag_result.get("crime_type"),
-                            "probability": tag_result.get("probability"),
-                            "method": request.tagging_method
-                        })
+                        results.append(
+                            TaggingResultResponse(
+                                url=url,
+                                success=True,
+                                crime_type=tag_result.get("crime_type"),
+                                probability=tag_result.get("probability"),
+                                error=None,
+                            )
+                        )
+
+                        tagged_results.append(
+                            {
+                                "url": url,
+                                "crime_type": tag_result.get("crime_type"),
+                                "probability": tag_result.get("probability"),
+                                "method": request.tagging_method,
+                            }
+                        )
 
                     except Exception as tag_error:
-                        results.append(TaggingResultResponse(
-                            url=url, success=False, crime_type=None,
-                            probability=None, error=f"Tagging failed: {tag_error}"
-                        ))
+                        results.append(
+                            TaggingResultResponse(
+                                url=url,
+                                success=False,
+                                crime_type=None,
+                                probability=None,
+                                error=f"Tagging failed: {tag_error}",
+                            )
+                        )
 
                 # Step 3: Save tagged results to storage
                 if request.tags_save and tagged_results:
                     handle_storage_operation(
                         mongo_store.save_tags,
                         "saved tags to storage",
-                        tagged_results, method=request.tagging_method,
-                        llm_name="gpt-4o", days=request.tags_save_days
+                        tagged_results,
+                        method=request.tagging_method,
+                        llm_name=request.llm_model,  # Use the actual model name
+                        days=request.tags_save_days,
                     )
 
         success_count = sum(1 for r in results if r.success)
         return TaggingResponse(
-            success=True, results=results, total_results=len(results),
-            message=f"Tagging completed: {success_count} successful, {len(results) - success_count} failed"
+            success=True,
+            results=results,
+            total_results=len(results),
+            message=f"Tagging completed: {success_count} successful, {len(results) - success_count} failed",
         )
 
     except Exception as e:
         logger.error(f"Tagging error: {e}")
-        failed_results = [
-            TaggingResultResponse(url=url, success=False, crime_type=None, 
-                                probability=None, error=f"System error: {e}")
-            for url in request.urls
-        ]
+        failed_results = create_failed_result_responses(
+            request.urls, TaggingResultResponse, f"System error: {e}"
+        )
         return TaggingResponse(
-            success=False, results=failed_results, total_results=len(failed_results),
-            message=f"System error: {e}"
+            success=False,
+            results=failed_results,
+            total_results=len(failed_results),
+            message=f"System error: {e}",
         )
 
 
@@ -763,73 +954,75 @@ async def summarize_news_content(request: SummaryRequest):
     """
     try:
         session_id = request.session_id
-        logger.info(f"Summary request received - session_id: {session_id}, URLs: {len(request.urls)}")
-        
+        logger.info(
+            f"Summary request received - session_id: {session_id}, URLs: {len(request.urls)}"
+        )
+
+        # Validate LLM model
+        try:
+            azure_deployment = validate_llm_deployment(request.llm_model)
+        except HTTPException as e:
+            return create_error_response(
+                SummaryResponse, str(e.detail), summary=None
+            )
+
         # Handle missing session ID
         if not session_id:
             logger.warning("No session ID provided in summary request")
             return create_error_response(
                 SummaryResponse,
                 "Session is required. Please search for news and get content first, then try summarization again.",
-                summary=None
+                summary=None,
             )
 
         if not request.urls:
             return create_error_response(
-                SummaryResponse,
-                "No URLs provided for summarization",
-                summary=None
+                SummaryResponse, "No URLs provided for summarization", summary=None
             )
 
         # Get contents from session and validate
-        web_contents = get_session_contents_safe(session_id or "")
-        contents_to_summarize = []
-        missing_urls = []
-        
-        for url in request.urls:
-            if url in web_contents:
-                contents_to_summarize.append({"url": url, "text": web_contents[url]})
-            else:
-                missing_urls.append(url)
-        
-        # Validate contents
-        is_valid, error_msg = validate_contents_for_processing(contents_to_summarize, missing_urls)
-        if not is_valid:
-            return create_error_response(
-                SummaryResponse,
-                error_msg or "Content validation failed",
-                summary=None
-            )
-            
-        logger.info(f"Found {len(contents_to_summarize)} contents to summarize")
+        contents, missing_urls, error_msg = get_contents_from_session_with_validation(
+            session_id, request.urls, "summarization"
+        )
+
+        if error_msg:
+            return create_error_response(SummaryResponse, error_msg, summary=None)
+
+        logger.info(f"Found {len(contents)} contents to summarize")
 
         try:
-            # Initialize LLM and embeddings
-            llm, emb = init_llm_and_embeddings()
-            
+            # Initialize LLM and embeddings with the validated model
+            llm, emb = init_llm_and_embeddings(azure_deployment, request.llm_model)
+
             # Create documents from content
-            docs = convert_contents_to_documents(contents_to_summarize)
-            
+            docs = [
+                Document(page_content=content["text"], metadata={"url": content["url"]})
+                for content in contents
+                if content.get("text")
+            ]
+
             # Determine number of clusters
             num_clusters = request.num_clusters if request.cluster_docs else 0
-            
+
             # Choose summarization method and perform summarization
             if request.summary_method == "map-reduce":
                 summarizer = MapReduceSummarization(llm, emb)
             else:  # iterative-refinement
                 summarizer = RefinementSummarization(llm, emb)
-            
+
             summary = await summarizer.summarize(
-                docs=docs, lang=request.lang,
-                max_words=request.max_words, num_cluster=num_clusters
+                docs=docs,
+                lang=request.lang,
+                max_words=request.max_words,
+                num_cluster=num_clusters,
             )
-            
+
             logger.info("Summarization completed successfully")
-            
+
             return create_success_response(
                 SummaryResponse,
-                f"Summary generated successfully, processed {len(contents_to_summarize)} articles",
-                summary=summary
+                f"Summary generated successfully, processed {len(contents)} articles",
+                summary=summary,
             )
 
         except Exception as summarization_error:
@@ -837,15 +1030,13 @@ async def summarize_news_content(request: SummaryRequest):
             return create_error_response(
                 SummaryResponse,
                 f"Summary generation failed: {summarization_error}",
-                summary=None
+                summary=None,
             )
 
     except Exception as e:
         logger.error(f"Summary error: {e}")
         return create_error_response(
-            SummaryResponse,
-            f"System error: {e}",
-            summary=None
+            SummaryResponse, f"System error: {e}", summary=None
         )
 
 
@@ -853,95 +1044,95 @@ async def summarize_news_content(request: SummaryRequest):
 @require_session(strict=False)
 async def qa_endpoint(request: QARequest):
     """Process QA request with context from session."""
-    from langchain_core.documents import Document
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-    
     try:
         session_id = request.session_id
-        logger.info(f"QA request received - session_id: {session_id}, company: {request.company_name}")
-        
-        # Handle missing session ID
-        if not session_id:
-            logger.warning("No session ID provided in QA request")
-            return create_error_response(
-                QAResponse,
-                "Session is required. Please search for news and get content first, then try Q&A again.",
-                question=request.question,
-                answer=None
-            )
-        
-        # Initialize LLM and embeddings using utility function
-        llm, _ = init_llm_and_embeddings("gpt-4o-mini", "gpt-4o-mini")
-        
-        # Initialize embeddings with QA specific configuration
-        from langchain_openai import AzureOpenAIEmbeddings
-        embeddings = AzureOpenAIEmbeddings(
-            azure_deployment="text-embedding-3-small",
-            chunk_size=1000
+        logger.info(
+            f"QA request received - session_id: {session_id}, company: {request.company_name}"
         )
-        
-        # Get contents using utility function (no MongoDB fallback for QA)
-        session_contents = get_session_contents_safe(request.session_id or "")
-        
-        contents = []
-        missing_urls = []
-        
-        for url in request.urls:
-            if url in session_contents:
-                contents.append({"url": url, "text": session_contents[url]})
-            else:
-                missing_urls.append(url)
-        
-        if missing_urls:
-            logger.warning(f"URLs not found in session: {missing_urls}")
-        
-        if not contents:
+
+        # Validate LLM model
+        try:
+            azure_deployment = validate_llm_deployment(request.llm_model)
+        except HTTPException as e:
             return create_error_response(
                 QAResponse,
-                "No relevant content found for answering the question",
+                str(e.detail),
                 question=request.question,
-                answer=None
+                answer=None,
             )
-        
-        # Convert contents to documents
-        documents = convert_contents_to_documents(contents)
-        
+
+        # Validate session and URLs
+        is_valid, validation_error = validate_session_and_urls(
+            session_id, request.urls, "Q&A"
+        )
+        if not is_valid:
+            return create_error_response(
+                QAResponse,
+                validation_error or "Validation failed",
+                question=request.question,
+                answer=None,
+            )
+
+        # Get contents from session with validation (session_id guaranteed to be valid)
+        contents, missing_urls, error_msg = get_contents_from_session_with_validation(
+            session_id or "", request.urls, "Q&A"
+        )
+
+        if error_msg:
+            return create_error_response(
+                QAResponse, error_msg, question=request.question, answer=None
+            )
+
+        # Initialize LLM and embeddings using the validated model
+        llm, _ = init_llm_and_embeddings(azure_deployment, request.llm_model)
+
+        # Initialize embeddings with QA specific configuration
+        embeddings = AzureOpenAIEmbeddings(
+            azure_deployment="text-embedding-3-small", chunk_size=1000
+        )
+
+        # Convert contents to documents and split
+        documents = [
+            Document(page_content=content["text"], metadata={"url": content["url"]})
+            for content in contents
+            if content.get("text")
+        ]
         if not documents:
             return create_error_response(
                 QAResponse,
                 "No valid document content found for answering the question",
                 question=request.question,
-                answer=None
+                answer=None,
             )
-        
+
         # Split documents into chunks
-        text_splitter = create_qa_config()
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=DEFAULT_CHUNK_SIZE, chunk_overlap=DEFAULT_CHUNK_OVERLAP
+        )
         split_docs = text_splitter.split_documents(documents)
-        
+
         # Initialize QA system
         qa_system = QAWithContext(llm=llm, emb=embeddings)
-        
+
         # Process the query
         result = await qa_system.query(
-            query=request.question,
-            lang=request.lang,
-            docs=split_docs
+            query=request.question, lang=request.lang, docs=split_docs
         )
-        
+
         return create_success_response(
             QAResponse,
             "Q&A processing successful",
             question=result.get("question", request.question),
-            answer=result.get("answer")
+            answer=result.get("answer"),
         )
-        
+
     except Exception as e:
         logger.error(f"Error in QA processing: {str(e)}")
         return create_error_response(
             QAResponse,
             f"Q&A processing failed: {str(e)}",
             question=request.question,
-            answer=None
+            answer=None,
         )
 
 
@@ -956,18 +1147,18 @@ async def health_check():
 async def get_session_status(session_id: str):
     """Get session status."""
     cleanup_expired_sessions()
-    
+
     session_data = get_session_data(session_id)
     if not session_data:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     search_results = session_data.get("search_results", [])
     web_contents = session_data.get("web_contents", {})
     user_context = session_data.get("user_context", {})
-    
+
     created_at = session_data.get("created_at")
     last_accessed = session_data.get("last_accessed")
-    
+
     return {
         "session_id": session_id,
         "created_at": created_at.isoformat() if created_at else None,
@@ -975,8 +1166,9 @@ async def get_session_status(session_id: str):
         "search_results_count": len(search_results),
         "web_contents_count": len(web_contents),
         "user_context": user_context,
-        "urls_with_content": list(web_contents.keys())
+        "urls_with_content": list(web_contents.keys()),
     }
+
 
 @app.delete("/api/session/{session_id}")
 async def clear_session(session_id: str):
@@ -987,22 +1179,22 @@ async def clear_session(session_id: str):
     else:
         raise HTTPException(status_code=404, detail="Session not found")
 
+
 @app.get("/api/session/{session_id}/contents")
 async def get_session_contents(session_id: str):
     """Get session contents."""
     cleanup_expired_sessions()
-    
+
     session_data = get_session_data(session_id)
     if not session_data:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     web_contents = session_data.get("web_contents", {})
     return {
         "session_id": session_id,
         "contents": [
-            {"url": url, "text_length": len(text)} 
-            for url, text in web_contents.items()
-        ]
+            {"url": url, "text_length": len(text)} for url, text in web_contents.items()
+        ],
     }
 
 
@@ -1013,14 +1205,18 @@ async def debug_session_info():
         "total_sessions": len(SESSION_STORE),
         "sessions": {
             session_id: {
-                "created_at": data.get("created_at").isoformat() if data.get("created_at") else None,
-                "last_accessed": data.get("last_accessed").isoformat() if data.get("last_accessed") else None,
+                "created_at": data.get("created_at").isoformat()
+                if data.get("created_at")
+                else None,
+                "last_accessed": data.get("last_accessed").isoformat()
+                if data.get("last_accessed")
+                else None,
                 "search_results_count": len(data.get("search_results", [])),
                 "web_contents_count": len(data.get("web_contents", {})),
-                "has_user_context": bool(data.get("user_context"))
+                "has_user_context": bool(data.get("user_context")),
             }
             for session_id, data in SESSION_STORE.items()
-        }
+        },
     }
 
 
@@ -1029,23 +1225,25 @@ async def test_session_handling(request_data: dict):
     """Debug endpoint to test session handling."""
     session_id = request_data.get("session_id")
     logger.info(f"Test session request - session_id: {session_id}")
-    
+
     if not session_id:
         return {
             "success": False,
             "message": "No session ID provided",
-            "session_exists": False
+            "session_exists": False,
         }
-    
+
     session_data = get_session_data(session_id)
     session_exists = bool(session_data)
-    
+
     return {
         "success": True,
         "message": f"Session {session_id} {'exists' if session_exists else 'does not exist'}",
         "session_exists": session_exists,
         "session_data_keys": list(session_data.keys()) if session_data else [],
-        "web_contents_count": len(session_data.get("web_contents", {})) if session_data else 0
+        "web_contents_count": len(session_data.get("web_contents", {}))
+        if session_data
+        else 0,
     }
 
 
@@ -1063,49 +1261,19 @@ def create_success_response(response_class, message: str, **kwargs):
 def create_failed_result_responses(urls: List[str], result_class, error_message: str):
     """Create failed result responses for multiple URLs."""
     return [
-        result_class(url=url, success=False, error=error_message, **{
-            key: None for key in result_class.__fields__ 
-            if key not in ['url', 'success', 'error']
-        })
+        result_class(
+            url=url,
+            success=False,
+            error=error_message,
+            **{
+                key: None
+                for key in result_class.__fields__
+                if key not in ["url", "success", "error"]
+            },
+        )
         for url in urls
     ]
 
-
-def create_qa_config():
-    """Create QA-specific configuration."""
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-    
-    return RecursiveCharacterTextSplitter(
-        chunk_size=DEFAULT_CHUNK_SIZE, 
-        chunk_overlap=DEFAULT_CHUNK_OVERLAP
-    )
-
-
-def convert_contents_to_documents(contents: List[Dict[str, str]]):
-    """Convert content dictionaries to Document objects."""
-    from langchain_core.documents import Document
-    
-    documents = []
-    for content in contents:
-        if content.get("text"):
-            doc = Document(
-                page_content=content["text"],
-                metadata={"url": content["url"]}
-            )
-            documents.append(doc)
-    return documents
-
-
-def validate_contents_for_processing(contents: List[Dict[str, str]], missing_urls: List[str]):
-    """Validate that we have content for processing."""
-    if missing_urls:
-        logger.warning(f"URLs not found: {missing_urls}")
-    
-    if not contents:
-        return False, "Content not found, please get content first"
-    
-    return True, None
-    
 
 # Logging utilities
 def log_endpoint_start(endpoint_name: str, params: dict):
@@ -1133,46 +1301,60 @@ def log_storage_operation(operation: str, success: bool, details: str = ""):
 app.mount("/", StaticFiles(directory=".", html=True), name="root")
 
 if __name__ == "__main__":
-    import uvicorn
     import os
+
+    import uvicorn
 
     # Get server configuration
     config = get_server_config()
-    
+
     # Check if preferred port is available, get fallback if not
     preferred_port = config["port"]
     if not check_port_availability(preferred_port):
         fallback_port = get_fallback_port(preferred_port)
-        logger.warning(f"Preferred port {preferred_port} not available, using fallback port {fallback_port}")
+        logger.warning(
+            f"Preferred port {preferred_port} not available, using fallback port {fallback_port}"
+        )
         config["port"] = fallback_port
-    
+
     # Prepare uvicorn run arguments
     run_args = {
         "app": "serv_fastapi:app",
         "host": config["host"],
         "port": config["port"],
-        "reload": config["reload"]
+        "reload": config["reload"],
     }
-    
+
     # Add SSL configuration if certificates are available
     ssl_keyfile = config.get("ssl_keyfile")
     ssl_certfile = config.get("ssl_certfile")
-    
+
     # Check for default certificate files if not explicitly set
     if not ssl_keyfile and os.path.exists("key.pem"):
         ssl_keyfile = "key.pem"
     if not ssl_certfile and os.path.exists("cert.pem"):
         ssl_certfile = "cert.pem"
-    
-    if ssl_keyfile and ssl_certfile and os.path.exists(ssl_keyfile) and os.path.exists(ssl_certfile):
+
+    if (
+        ssl_keyfile
+        and ssl_certfile
+        and os.path.exists(ssl_keyfile)
+        and os.path.exists(ssl_certfile)
+    ):
         run_args["ssl_keyfile"] = ssl_keyfile
         run_args["ssl_certfile"] = ssl_certfile
-        logger.info(f"Starting HTTPS server on https://{config['host']}:{config['port']}")
+        logger.info(
+            f"Starting HTTPS server on https://{config['host']}:{config['port']}"
+        )
         logger.info(f"Using SSL certificate: {ssl_certfile}, key: {ssl_keyfile}")
     else:
-        logger.warning("SSL certificates not found or not configured. Starting HTTP server.")
-        logger.warning("To enable HTTPS, ensure cert.pem and key.pem files exist, or set SSL_KEYFILE and SSL_CERTFILE environment variables.")
+        logger.warning(
+            "SSL certificates not found or not configured. Starting HTTP server."
+        )
+        logger.warning(
+            "To enable HTTPS, ensure cert.pem and key.pem files exist, or set SSL_KEYFILE and SSL_CERTFILE environment variables."
+        )
         logger.info(f"Starting HTTP server on http://{config['host']}:{config['port']}")
-    
+
     # Run the application
     uvicorn.run(**run_args)

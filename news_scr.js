@@ -1,168 +1,289 @@
 // JavaScript for News Search Application (news_scr.js)
-// Handles web search functionality, result display, and user interactions
+// Optimized version with improved efficiency and maintainability
 
-// Global session management
-let currentSessionId = null;
+// Global state management
+const AppState = {
+    sessionId: null,
+    newsResults: [],
+    
+    setSessionId(id) {
+        this.sessionId = id;
+        console.log('Session ID saved:', id);
+    },
+    
+    setNewsResults(results) {
+        this.newsResults = results;
+    },
+    
+    getUrls() {
+        return this.newsResults.map(result => result.url);
+    },
+    
+    hasSession() {
+        return !!this.sessionId;
+    },
+    
+    hasResults() {
+        return this.newsResults.length > 0;
+    }
+};
 
-$(document).ready(function() {
-    // Initialize the application
-    initializeApp();
-});
+// UI state management
+const UIState = {
+    enableButtons(selector) {
+        $(selector).removeClass('disabled');
+    },
+    
+    disableButtons(selector) {
+        $(selector).addClass('disabled');
+    },
+    
+    toggleFormInputs(disabled) {
+        $('#frm_web_search input, #frm_web_search select').prop('disabled', disabled);
+        const submitBtn = $('#frm_web_search input[type="submit"]');
+        submitBtn.val(disabled ? 'Searching...' : 'Click to search');
+    },
+    
+    toggleSubmitButton(selector, disabled, loadingText, normalText) {
+        $(selector).prop('disabled', disabled);
+        if (loadingText && normalText) {
+            $(selector).text(disabled ? loadingText : normalText);
+        }
+    }
+};
+
+// Generic AJAX utility
+const AjaxHelper = {
+    makeRequest(options) {
+        const defaultOptions = {
+            method: 'POST',
+            contentType: 'application/json',
+            xhrFields: { withCredentials: true },
+            timeout: 30000
+        };
+        
+        return $.ajax({
+            ...defaultOptions,
+            ...options,
+            data: typeof options.data === 'object' ? JSON.stringify(options.data) : options.data
+        });
+    },
+    
+    handleError(xhr, status, context = '') {
+        let message = `${context} failed, please try again later`;
+        
+        if (xhr.responseJSON?.detail || xhr.responseJSON?.message) {
+            message = xhr.responseJSON.detail || xhr.responseJSON.message;
+        } else if (xhr.responseText) {
+            message = `Server response: ${xhr.responseText}`;
+        } else {
+            const errorMap = {
+                'timeout': `${context} timeout, please check network connection`,
+                0: 'Unable to connect to server, please check network settings',
+                404: 'API endpoint does not exist, please check server configuration',
+                422: 'Request parameters error, please check input content',
+                500: 'Server internal error, possibly configuration issue'
+            };
+            message = errorMap[status] || errorMap[xhr.status] || message;
+        }
+        
+        return message;
+    }
+};
+
+// Alert management
+const AlertManager = {
+    show(message, type, autoHide = true) {
+        const alertHtml = `
+            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+        
+        $('#div_ajax_info').html(alertHtml).show();
+        
+        if (autoHide && (type === 'success' || type === 'info')) {
+            setTimeout(() => $('#div_ajax_info').fadeOut(), 5000);
+        }
+    },
+    
+    hide() {
+        $('#div_ajax_info').hide();
+    },
+    
+    showLoading(message) {
+        this.show(`
+            <div class="d-flex align-items-center">
+                <div class="spinner-border spinner-border-sm me-2" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                ${message}
+            </div>
+        `, 'info', false);
+    },
+    
+    showError(title, message) {
+        this.show(`
+            <div class="d-flex align-items-center">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <div>
+                    <strong>${title}</strong><br>
+                    <small>${message}</small>
+                </div>
+            </div>
+        `, 'danger');
+    }
+};
+
+// Utility functions
+const Utils = {
+    escapeHtml(text) {
+        const map = {
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', 
+            '"': '&quot;', "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, m => map[m]);
+    },
+    
+    getDomainFromUrl(url) {
+        try {
+            const domain = new URL(url).hostname;
+            return domain.length > 30 ? domain.substring(0, 30) + '...' : domain;
+        } catch {
+            return 'Unknown Source';
+        }
+    },
+    
+    getFormData() {
+        const formData = {
+            company_name: $('#company_name').val().trim(),
+            lang: $('#lang').val(),
+            search_suffix: $('#search_suffix').val(),
+            search_engine: $('#search_engine').val(),
+            num_results: parseInt($('#num_results').val()),
+            llm_model: $('#llm_model').val()
+        };
+        
+        // Validate LLM model
+        const supportedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'];
+        if (!supportedModels.includes(formData.llm_model)) {
+            throw new Error(`LLM model "${formData.llm_model}" is currently unsupported. Please select one of: ${supportedModels.join(', ')}`);
+        }
+        
+        return formData;
+    },
+    
+    validateSession() {
+        if (!AppState.hasSession()) {
+            AlertManager.show('Session ID not found, please search again', 'danger');
+            return false;
+        }
+        return true;
+    },
+    
+    validateResults() {
+        if (!AppState.hasResults()) {
+            AlertManager.show('No news results found', 'warning');
+            return false;
+        }
+        return true;
+    }
+};
+
+$(document).ready(() => initializeApp());
 
 function initializeApp() {
-    // Bind form submission event
-    $('#frm_web_search').on('submit', function(e) {
-        e.preventDefault();
-        performSearch();
-    });
+    // Event bindings
+    const eventBindings = [
+        ['#frm_web_search', 'submit', (e) => { e.preventDefault(); performSearch(); }],
+        ['#company_name, #lang', 'change input', () => {
+            if ($('#qa_modal').hasClass('show')) setDefaultQAQuery();
+        }],
+        ['#btn_crawler_submit', 'click', getNewsContent],
+        ['#btn_tagging_submit', 'click', performTagging],
+        ['#btn_summary_submit', 'click', performSummary],
+        ['#btn_qa_submit', 'click', performQA],
+        ['#btn_qa', 'click', setDefaultQAQuery],
+        ['#llm_model', 'change', handleLLMModelChange]
+    ];
     
-    // Bind company name and language change events to update QA query
-    $('#company_name, #lang').on('change input', function() {
-        // Update QA query if modal is visible
-        if ($('#qa_modal').hasClass('show')) {
-            setDefaultQAQuery();
-        }
-    });
-    
-    // Bind other button events
-    $('#btn_crawler').on('click', function() {
-        // Get Content button just opens the modal, no immediate action
-        // The actual content fetching will be triggered by the Submit button in the modal
-    });
-    
-    $('#btn_qa').on('click', function() {
-        // Set default query when QA modal opens
-        setDefaultQAQuery();
-    });
-    
-    $('#btn_crawler_submit').on('click', function() {
-        // This is the Submit button in the crawler modal
-        getNewsContent();
-    });
-    
-    $('#btn_tagging_submit').on('click', function() {
-        performTagging();
-    });
-    
-    $('#btn_summary_submit').on('click', function() {
-        performSummary();
-    });
-    
-    $('#btn_qa_submit').on('click', function() {
-        performQA();
+    eventBindings.forEach(([selector, event, handler]) => {
+        $(selector).on(event, handler);
     });
 }
 
-function performSearch() {
-    // Get form data
-    const formData = {
-        company_name: $('#company_name').val().trim(),
-        lang: $('#lang').val(),
-        search_suffix: $('#search_suffix').val(),
-        search_engine: $('#search_engine').val(),
-        num_results: parseInt($('#num_results').val()),
-        llm_model: $('#llm_model').val()
-    };
+// Handle LLM model selection
+function handleLLMModelChange() {
+    const selectedModel = $('#llm_model').val();
+    const supportedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'];
     
-    // Validate form data
-    if (!formData.company_name) {
-        showAlert('Please enter company name', 'danger');
-        return;
+    if (!supportedModels.includes(selectedModel)) {
+        AlertManager.show(
+            `LLM model "${selectedModel}" is currently not supported. Please select one of: ${supportedModels.join(', ')}`,
+            'warning'
+        );
+        // Reset to default supported model
+        $('#llm_model').val('gpt-4o');
     }
-    
-    // Hide previous results
-    hideSearchResults();
-    
-    // Disable form during search
-    $('#frm_web_search input, #frm_web_search select').prop('disabled', true);
-    $('#frm_web_search input[type="submit"]').val('Searching...');
-    
-    // Make API request
-    $.ajax({
-        url: '/api/search',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify(formData),
-        timeout: 30000,
-        xhrFields: {
-            withCredentials: true
-        },
-        beforeSend: function() {
-            showAlert(`
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm me-2" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    Searching for "${formData.company_name}" related news using ${formData.search_engine}, please wait...
-                </div>
-            `, 'info', false);
+}
+
+// Search functionality
+function performSearch() {
+    try {
+        const formData = Utils.getFormData();
+        
+        if (!formData.company_name) {
+            AlertManager.show('Please enter company name', 'danger');
+            return;
         }
-    }).done(function(response) {
-        hideAlert();
-        handleSearchSuccess(response);
-    }).fail(function(xhr, status, error) {
-        hideAlert();
-        handleSearchError(xhr, status, error);
-    }).always(function() {
-        // Re-enable form
-        $('#frm_web_search input, #frm_web_search select').prop('disabled', false);
-        $('#frm_web_search input[type="submit"]').val('Click to search');
-    });
+        
+        hideSearchResults();
+        clearPreviousResults();
+        UIState.toggleFormInputs(true);
+        
+        AjaxHelper.makeRequest({
+            url: '/api/search',
+            data: formData,
+            beforeSend: () => AlertManager.showLoading(
+                `Searching for "${formData.company_name}" related news using ${formData.search_engine}, please wait...`
+            )
+        })
+        .done(handleSearchSuccess)
+        .fail((xhr, status, error) => {
+            AlertManager.hide();
+            const message = AjaxHelper.handleError(xhr, status, 'Search');
+            AlertManager.showError('Search Failed', message);
+            hideSearchResults();
+            console.error('Search error:', { xhr, status, error });
+        })
+        .always(() => {
+            UIState.toggleFormInputs(false);
+        });
+    } catch (error) {
+        AlertManager.show(error.message, 'danger');
+        UIState.toggleFormInputs(false);
+    }
 }
 
 function handleSearchSuccess(response) {
-    if (response.success && response.results.length > 0) {
-        // Save session ID for subsequent API calls
-        if (response.session_id) {
-            currentSessionId = response.session_id;
-            console.log('Session ID saved:', currentSessionId);
-        }
+    AlertManager.hide();
+    
+    if (response.success && response.results?.length > 0) {
+        AppState.setSessionId(response.session_id);
+        AppState.setNewsResults(response.results);
         
-        // Display search results
         displaySearchResults(response.results);
-        showAlert(response.message, 'success', false);
+        AlertManager.show(response.message, 'success', false);
         
-        // Show operation buttons but only enable Get Content
+        // Show operations and enable Get Content only
         $('#div_operation').show();
-        $('#btn_crawler').removeClass('disabled');
-        // Keep other buttons disabled until content is retrieved
-        $('#btn_tagging, #btn_summary, #btn_qa').addClass('disabled');
-        
+        UIState.enableButtons('#btn_crawler');
+        UIState.disableButtons('#btn_tagging, #btn_summary, #btn_qa');
     } else {
-        showAlert(response.message || 'No related news found', 'warning');
+        AlertManager.show(response.message || 'No related news found', 'warning');
         hideSearchResults();
     }
-}
-
-function handleSearchError(xhr, status, error) {
-    let errorMessage = 'Search failed, please try again later';
-    
-    if (xhr.responseJSON && xhr.responseJSON.detail) {
-        errorMessage = xhr.responseJSON.detail;
-    } else if (status === 'timeout') {
-        errorMessage = 'Search timeout, please check network connection or try again later';
-    } else if (xhr.status === 0) {
-        errorMessage = 'Unable to connect to server, please check network settings or confirm server is running';
-    } else if (xhr.status === 500) {
-        errorMessage = 'Server internal error, possibly API configuration issue';
-    } else if (xhr.status === 404) {
-        errorMessage = 'API endpoint does not exist, please check server configuration';
-    } else if (xhr.status === 422) {
-        errorMessage = 'Request parameters error, please check input content';
-    }
-    
-    showAlert(`
-        <div class="d-flex align-items-center">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-            <div>
-                <strong>Search Failed</strong><br>
-                <small>${errorMessage}</small>
-            </div>
-        </div>
-    `, 'danger');
-    
-    hideSearchResults();
-    console.error('Search error:', { xhr, status, error });
 }
 
 function displaySearchResults(results) {
@@ -186,13 +307,13 @@ function displaySearchResults(results) {
                             <td class="text-center">${index + 1}</td>
                             <td>
                                 <a href="${result.url}" target="_blank" class="text-decoration-none" 
-                                   title="${escapeHtml(result.title)}">
-                                    ${escapeHtml(result.title)}
+                                   title="${Utils.escapeHtml(result.title)}">
+                                    ${Utils.escapeHtml(result.title)}
                                 </a>
                             </td>
                             <td>
                                 <small class="text-muted" title="${result.url}">
-                                    ${getDomainFromUrl(result.url)}
+                                    ${Utils.getDomainFromUrl(result.url)}
                                 </small>
                             </td>
                             <td class="text-center content-status" data-index="${index}" data-url="${result.url}">
@@ -214,157 +335,84 @@ function displaySearchResults(results) {
 function hideSearchResults() {
     $('#div_search_res').hide();
     $('#div_operation').hide();
-    // Disable all operation buttons when hiding results
-    $('#btn_crawler, #btn_tagging, #btn_summary, #btn_qa').addClass('disabled');
+    UIState.disableButtons('#btn_crawler, #btn_tagging, #btn_summary, #btn_qa');
 }
 
-function showAlert(message, type, autoHide = true) {
-    const alertHtml = `
-        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    `;
+function clearPreviousResults() {
+    // Clear summary results
+    $('#div_summary_res').empty().hide();
     
-    $('#div_ajax_info').html(alertHtml).show();
-    
-    // Auto-hide success and info messages after 5 seconds, unless autoHide is false
-    if (autoHide && (type === 'success' || type === 'info')) {
-        setTimeout(function() {
-            $('#div_ajax_info').fadeOut();
-        }, 5000);
-    }
+    // Clear Q&A results  
+    $('#div_qa_res').empty().hide();
 }
 
-function hideAlert() {
-    console.log('hideAlert called');
-    $('#div_ajax_info').hide();
-}
-
-function escapeHtml(text) {
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
-}
-
-function getDomainFromUrl(url) {
-    try {
-        const domain = new URL(url).hostname;
-        return domain.length > 30 ? domain.substring(0, 30) + '...' : domain;
-    } catch (e) {
-        return 'Unknown Source';
-    }
-}
-
-// Export functions for external use
-window.performSearch = performSearch;
-window.showAlert = showAlert;
-window.getNewsContent = getNewsContent;
-
+// Content crawling functionality
 function getNewsContent() {
-    const newsRows = $('#news-results-table tbody tr');
-    if (newsRows.length === 0) {
-        showAlert('No news results found', 'warning');
-        return;
-    }
-
-    // Set all status to loading
-    $('.content-status').each(function() {
-        $(this).html('<i class="bi bi-hourglass-split text-warning" title="Loading"></i>');
-    });
+    if (!Utils.validateResults() || !Utils.validateSession()) return;
     
-    // Get all news URLs and create mapping
-    const urls = [];
-    const urlToIndex = {};
-    newsRows.each(function() {
-        const url = $(this).data('url');
-        const index = $(this).data('index');
-        if (url) {
-            urls.push(url);
-            urlToIndex[url] = index;
-        }
-    });
-
-    // Check if session_id exists
-    if (!currentSessionId) {
-        showAlert('Session ID not found, please search again', 'danger');
-        return;
-    }
-
-    // Call API to get content
-    $.ajax({
+    // Set loading status for all content cells
+    $('.content-status').html('<i class="bi bi-hourglass-split text-warning" title="Loading"></i>');
+    
+    const requestData = {
+        urls: AppState.getUrls(),
+        crawler_type: 'apify',
+        company_name: $('#company_name').val().trim(),
+        lang: $('#lang').val(),
+        contents_save: $('#contents_save').prop('checked'),
+        contents_load: $('#contents_load').prop('checked'),
+        contents_save_days: parseInt($('#contents_save_days').val()),
+        contents_load_days: parseInt($('#contents_load_days').val()),
+        session_id: AppState.sessionId
+    };
+    
+    AjaxHelper.makeRequest({
         url: '/api/crawler',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify({
-            urls: urls,
-            crawler_type: 'apify',
-            company_name: $('#company_name').val().trim(),
-            lang: $('#lang').val(),
-            contents_save: $('#contents_save').prop('checked'),
-            contents_load: $('#contents_load').prop('checked'),
-            contents_save_days: parseInt($('#contents_save_days').val()),
-            contents_load_days: parseInt($('#contents_load_days').val()),
-            session_id: currentSessionId
-        }),
+        data: requestData,
         timeout: 120000,
-        xhrFields: {
-            withCredentials: true
-        },
-        beforeSend: function() {
-            console.log('Get content AJAX beforeSend triggered');
-            // Disable get content button to prevent duplicate submission
-            $('#btn_crawler_submit').prop('disabled', true);
-            showAlert(`
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm me-2" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    Getting news full content, please wait...
-                </div>
-            `, 'info', false);
+        beforeSend: () => {
+            UIState.toggleSubmitButton('#btn_crawler_submit', true);
+            AlertManager.showLoading('Getting news full content, please wait...');
         }
-    }).done(function(response) {
-        console.log('Get content AJAX done triggered');
-        hideAlert();
-        handleGetContentSuccess(response, urlToIndex);
-    }).fail(function(xhr, status, error) {
-        console.log('Get content AJAX fail triggered');
-        hideAlert();
-        handleGetContentError(xhr, status, error);
-    }).always(function() {
-        console.log('Get content AJAX always triggered');
-        // Re-enable get content button
-        $('#btn_crawler_submit').prop('disabled', false);
+    })
+    .done((response) => {
+        AlertManager.hide();
+        handleContentSuccess(response);
+    })
+    .fail((xhr, status, error) => {
+        AlertManager.hide();
+        const message = AjaxHelper.handleError(xhr, status, 'Content retrieval');
+        AlertManager.showError('Content Retrieval Failed', message);
+        $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>');
+        UIState.disableButtons('#btn_tagging, #btn_summary, #btn_qa');
+        console.error('Get content error:', { xhr, status, error });
+    })
+    .always(() => {
+        UIState.toggleSubmitButton('#btn_crawler_submit', false);
     });
 }
 
-function handleGetContentSuccess(response, urlToIndex) {
+function handleContentSuccess(response) {
     if (response.success && response.results) {
         let successCount = 0;
         let failCount = 0;
         
-        // Update status for each result
-        response.results.forEach(function(result, resultIndex) {
+        // Create URL to index mapping for efficiency
+        const urlToIndex = {};
+        AppState.newsResults.forEach((result, index) => {
+            urlToIndex[result.url] = index;
+        });
+        
+        response.results.forEach(result => {
             const index = urlToIndex[result.url];
-            
-            // Use index to locate status cell
             const statusCell = $(`.content-status[data-index="${index}"]`);
             
             if (statusCell.length > 0) {
                 if (result.success && result.content) {
-                    const successHtml = '<i class="bi bi-check-circle-fill text-success" title="Success"></i>';
-                    statusCell.html(successHtml);
+                    statusCell.html('<i class="bi bi-check-circle-fill text-success" title="Success"></i>');
                     successCount++;
                 } else {
                     const errorMsg = result.error || 'Failed';
-                    const failHtml = `<i class="bi bi-x-circle-fill text-danger" title="${errorMsg}"></i>`;
-                    statusCell.html(failHtml);
+                    statusCell.html(`<i class="bi bi-x-circle-fill text-danger" title="${errorMsg}"></i>`);
                     failCount++;
                 }
             } else {
@@ -373,154 +421,86 @@ function handleGetContentSuccess(response, urlToIndex) {
             }
         });
         
-        // Display result statistics
-        showAlert(`Content retrieval completed: ${successCount} successful, ${failCount} failed`, 'success', false);
+        AlertManager.show(`Content retrieval completed: ${successCount} successful, ${failCount} failed`, 'success', false);
         
-        // Only enable other function buttons when at least one URL's content is retrieved
+        // Enable other operations only if content was retrieved successfully
         if (successCount > 0) {
-            $('#btn_tagging, #btn_summary, #btn_qa').removeClass('disabled');
+            UIState.enableButtons('#btn_tagging, #btn_summary, #btn_qa');
         } else {
-            $('#btn_tagging, #btn_summary, #btn_qa').addClass('disabled');
+            UIState.disableButtons('#btn_tagging, #btn_summary, #btn_qa');
         }
     } else {
-        showAlert(response.message || 'Content retrieval failed', 'danger');
-        // Set all status to failed
+        AlertManager.show(response.message || 'Content retrieval failed', 'danger');
         $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>');
-        // Ensure other buttons remain disabled
-        $('#btn_tagging, #btn_summary, #btn_qa').addClass('disabled');
+        UIState.disableButtons('#btn_tagging, #btn_summary, #btn_qa');
     }
 }
 
-function handleGetContentError(xhr, status, error) {
-    let errorMessage = 'Content retrieval failed, please try again later';
-    
-    if (xhr.responseJSON && xhr.responseJSON.detail) {
-        errorMessage = xhr.responseJSON.detail;
-    } else if (status === 'timeout') {
-        errorMessage = 'Content retrieval timeout, please check network connection or try again later';
-    } else if (xhr.status === 0) {
-        errorMessage = 'Unable to connect to server, please check network settings or confirm server is running';
-    } else if (xhr.status === 500) {
-        errorMessage = 'Server internal error, possibly crawler configuration issue';
-    } else if (xhr.status === 404) {
-        errorMessage = 'API endpoint does not exist, please check server configuration';
-    }
-    
-    showAlert(`
-        <div class="d-flex align-items-center">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-            <div>
-                <strong>Content Retrieval Failed</strong><br>
-                <small>${errorMessage}</small>
-            </div>
-        </div>
-    `, 'danger');
-    
-    // Set all status to failed
-    $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>');
-    // Ensure other buttons remain disabled
-    $('#btn_tagging, #btn_summary, #btn_qa').addClass('disabled');
-    console.error('Get content error:', { xhr, status, error });
-}
-
+// Tagging functionality
 function performTagging() {
-    const newsRows = $('#news-results-table tbody tr');
-    if (newsRows.length === 0) {
-        showAlert('No news results found', 'warning');
-        return;
-    }
-
-    // Check if session_id exists
-    if (!currentSessionId) {
-        showAlert('Session ID not found, please search again', 'danger');
-        return;
-    }
-
-    // Get all news URLs and create mapping
-    const urls = [];
-    const urlToIndex = {};
-    newsRows.each(function() {
-        const url = $(this).data('url');
-        const index = $(this).data('index');
-        if (url) {
-            urls.push(url);
-            urlToIndex[url] = index;
-        }
-    });
-
-    // Call API for tagging processing
+    if (!Utils.validateResults() || !Utils.validateSession()) return;
+    
     const requestData = {
-        urls: urls,
+        urls: AppState.getUrls(),
         company_name: $('#company_name').val().trim(),
         lang: $('#lang').val(),
         tagging_method: $('#tagging_method').val(),
+        llm_model: $('#llm_model').val(),
         tags_save: $('#tags_save').prop('checked'),
         tags_load: $('#tags_load').prop('checked'),
         tags_save_days: parseInt($('#tags_save_days').val()),
         tags_load_days: parseInt($('#tags_load_days').val()),
-        session_id: currentSessionId
+        session_id: AppState.sessionId
     };
     
-    $.ajax({
+    AjaxHelper.makeRequest({
         url: '/api/tagging',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify(requestData),
+        data: requestData,
         timeout: 180000,
-        xhrFields: {
-            withCredentials: true
-        },
-        beforeSend: function() {
-            console.log('Tagging AJAX beforeSend triggered');
-            // Disable tagging button to prevent duplicate submission
-            $('#btn_tagging_submit').prop('disabled', true);
-            showAlert(`
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm me-2" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    Processing FC tagging, please wait...
-                </div>
-            `, 'info', false);
+        beforeSend: () => {
+            UIState.toggleSubmitButton('#btn_tagging_submit', true);
+            AlertManager.showLoading('Processing FC tagging, please wait...');
         }
-    }).done(function(response) {
-        console.log('Tagging AJAX done triggered');
-        hideAlert();
-        handleTaggingSuccess(response, urlToIndex);
-    }).fail(function(xhr, status, error) {
-        console.log('Tagging AJAX fail triggered');
-        hideAlert();
-        handleTaggingError(xhr, status, error);
-    }).always(function() {
-        console.log('Tagging AJAX always triggered');
-        // Re-enable tagging button
-        $('#btn_tagging_submit').prop('disabled', false);
+    })
+    .done(handleTaggingSuccess)
+    .fail((xhr, status, error) => {
+        AlertManager.hide();
+        const message = AjaxHelper.handleError(xhr, status, 'FC tagging');
+        AlertManager.showError('FC Tagging Failed', message);
+        console.error('Tagging error:', { xhr, status, error });
+    })
+    .always(() => {
+        UIState.toggleSubmitButton('#btn_tagging_submit', false);
     });
 }
 
-function handleTaggingSuccess(response, urlToIndex) {
+function handleTaggingSuccess(response) {
+    AlertManager.hide();
+    
     if (response.success && response.results) {
         let successCount = 0;
         let failCount = 0;
         
-        // Check if table already has Crime Type and Probability columns
-        if (!$('#news-results-table thead tr th:contains("Crime Type")').length) {
-            // Add new columns to table header
-            $('#news-results-table thead tr').append('<th scope="col" style="width: 30%">Crime Type</th>');
-            $('#news-results-table thead tr').append('<th scope="col" style="width: 10%">Probability</th>');
+        // Add table columns if they don't exist
+        const tableHeader = $('#news-results-table thead tr');
+        if (!tableHeader.find('th:contains("Crime Type")').length) {
+            tableHeader.append('<th scope="col" style="width: 30%">Crime Type</th>');
+            tableHeader.append('<th scope="col" style="width: 10%">Probability</th>');
         }
         
-        // Update tagging information for each result
-        response.results.forEach(function(result, resultIndex) {
+        // Create URL to index mapping for efficiency
+        const urlToIndex = {};
+        AppState.newsResults.forEach((result, index) => {
+            urlToIndex[result.url] = index;
+        });
+        
+        response.results.forEach(result => {
             const index = urlToIndex[result.url];
-            
-            // Use index to locate row
             const row = $(`#news-results-table tbody tr[data-index="${index}"]`);
             
             if (row.length > 0) {
-                // Check if row already has Crime Type and Probability columns
+                // Add new columns to row if they don't exist
                 if (row.find('td').length < 6) {
-                    // Add new columns to row
                     row.append('<td class="crime-type"></td>');
                     row.append('<td class="probability"></td>');
                 }
@@ -540,165 +520,64 @@ function handleTaggingSuccess(response, urlToIndex) {
             }
         });
         
-        // Display result statistics
-        showAlert(`FC tagging completed: ${successCount} successful, ${failCount} failed`, 'success', false);
-        
+        AlertManager.show(`FC tagging completed: ${successCount} successful, ${failCount} failed`, 'success', false);
     } else {
-        showAlert(response.message || 'FC tagging failed', 'danger');
+        AlertManager.show(response.message || 'FC tagging failed', 'danger');
     }
 }
 
-function handleTaggingError(xhr, status, error) {
-    let errorMessage = 'FC tagging failed, please try again later';
-    
-    if (xhr.responseJSON && xhr.responseJSON.detail) {
-        errorMessage = xhr.responseJSON.detail;
-    } else if (xhr.responseText) {
-        errorMessage = `Server response: ${xhr.responseText}`;
-    } else if (status === 'timeout') {
-        errorMessage = 'FC tagging timeout, please check network connection or try again later';
-    } else if (xhr.status === 0) {
-        errorMessage = 'Unable to connect to server, please check network settings or confirm server is running';
-    } else if (xhr.status === 500) {
-        errorMessage = 'Server internal error, possibly tagging configuration issue';
-    } else if (xhr.status === 404) {
-        errorMessage = 'API endpoint does not exist, please check server configuration';
-    } else if (xhr.status === 422) {
-        errorMessage = 'Request parameters error, please check input parameters';
-    }
-    
-    showAlert(`
-        <div class="d-flex align-items-center">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-            <div>
-                <strong>FC Tagging Failed</strong><br>
-                <small>${errorMessage}</small>
-            </div>
-        </div>
-    `, 'danger');
-    
-    console.error('Tagging error:', { xhr, status, error });
-}
-
+// Summary functionality
 function performSummary() {
-    const newsRows = $('#news-results-table tbody tr');
-    if (newsRows.length === 0) {
-        showAlert('No news results found', 'warning');
-        return;
-    }
-
-    // Check if session_id exists
-    if (!currentSessionId) {
-        showAlert('Session ID not found, please search again', 'danger');
-        return;
-    }
-
-    // Clear summary result area first
+    if (!Utils.validateResults() || !Utils.validateSession()) return;
+    
+    // Clear previous summary results
     $('#div_summary_res').empty().hide();
-
-    // Get all news URLs
-    const urls = [];
-    newsRows.each(function() {
-        const url = $(this).data('url');
-        if (url) {
-            urls.push(url);
-        }
-    });
-
-    // Collect form parameters
+    
     const requestData = {
-        urls: urls,
+        urls: AppState.getUrls(),
         company_name: $('#company_name').val().trim(),
         lang: $('#lang').val(),
         summary_method: $('#summary_method').val(),
+        llm_model: $('#llm_model').val(),
         max_words: parseInt($('#summary_max_words').val()),
         cluster_docs: $('#summary_clus_docs').prop('checked'),
         num_clusters: parseInt($('#summary_num_clus').val()),
-        session_id: currentSessionId
+        session_id: AppState.sessionId
     };
     
-    // Call API for summary processing
-    $.ajax({
+    AjaxHelper.makeRequest({
         url: '/api/summary',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify(requestData),
+        data: requestData,
         timeout: 300000,
-        xhrFields: {
-            withCredentials: true
-        },
-        beforeSend: function() {
-            console.log('Summary AJAX beforeSend triggered');
-            // Disable summary button to prevent duplicate submission
-            $('#btn_summary_submit').prop('disabled', true);
-            showAlert(`
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm me-2" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    Generating summary, please wait...
-                </div>
-            `, 'info', false);
+        beforeSend: () => {
+            UIState.toggleSubmitButton('#btn_summary_submit', true);
+            AlertManager.showLoading('Generating summary, please wait...');
         }
-    }).done(function(response) {
-        console.log('Summary AJAX done triggered');
-        hideAlert();
-        handleSummarySuccess(response);
-    }).fail(function(xhr, status, error) {
-        console.log('Summary AJAX fail triggered');
-        hideAlert();
-        handleSummaryError(xhr, status, error);
-    }).always(function() {
-        console.log('Summary AJAX always triggered');
-        // Re-enable summary button
-        $('#btn_summary_submit').prop('disabled', false);
+    })
+    .done(handleSummarySuccess)
+    .fail((xhr, status, error) => {
+        AlertManager.hide();
+        const message = AjaxHelper.handleError(xhr, status, 'Summary generation');
+        AlertManager.showError('Summary Generation Failed', message);
+        console.error('Summary error:', { xhr, status, error });
+    })
+    .always(() => {
+        UIState.toggleSubmitButton('#btn_summary_submit', false);
     });
 }
 
 function handleSummarySuccess(response) {
+    AlertManager.hide();
+    
     if (response.success && response.summary) {
-        // Display summary result
         displaySummaryResult(response.summary);
-        showAlert(response.message || 'Summary generated successfully', 'success', false);
+        AlertManager.show(response.message || 'Summary generated successfully', 'success', false);
     } else {
-        showAlert(response.message || 'Summary generation failed', 'danger');
+        AlertManager.show(response.message || 'Summary generation failed', 'danger');
     }
-}
-
-function handleSummaryError(xhr, status, error) {
-    let errorMessage = 'Summary generation failed, please try again later';
-    
-    if (xhr.responseJSON && xhr.responseJSON.message) {
-        errorMessage = xhr.responseJSON.message;
-    } else if (xhr.responseText) {
-        errorMessage = `Server response: ${xhr.responseText}`;
-    } else if (status === 'timeout') {
-        errorMessage = 'Summary generation timeout, please check network connection or try again later';
-    } else if (xhr.status === 0) {
-        errorMessage = 'Unable to connect to server, please check network settings or confirm server is running';
-    } else if (xhr.status === 500) {
-        errorMessage = 'Server internal error, possibly summary processing configuration issue';
-    } else if (xhr.status === 404) {
-        errorMessage = 'API endpoint does not exist, please check server configuration';
-    } else if (xhr.status === 422) {
-        errorMessage = 'Request parameters error, please check input parameters';
-    }
-    
-    showAlert(`
-        <div class="d-flex align-items-center">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-            <div>
-                <strong>Summary Generation Failed</strong><br>
-                <small>${errorMessage}</small>
-            </div>
-        </div>
-    `, 'danger');
-    
-    console.error('Summary error:', { xhr, status, error });
 }
 
 function displaySummaryResult(summary) {
-    // Display summary results in div_summary_res
     const summaryHtml = `
         <div class="p-3">
             <h5 class="mb-3">
@@ -707,7 +586,7 @@ function displaySummaryResult(summary) {
             </h5>
             <div class="border rounded p-3 bg-white">
                 <div class="summary-content" style="white-space: pre-wrap; line-height: 1.6;">
-                    ${escapeHtml(summary)}
+                    ${Utils.escapeHtml(summary)}
                 </div>
             </div>
             <div class="mt-2">
@@ -722,167 +601,67 @@ function displaySummaryResult(summary) {
     $('#div_summary_res').html(summaryHtml).show();
 }
 
-function setDefaultQAQuery() {
-    const companyName = $('#company_name').val().trim();
-    const lang = $('#lang').val();
-    
-    if (!companyName) {
-        // If no company name, clear the query
-        $('#ta_qa_query').val('');
-        return;
-    }
-    
-    // Default query templates for different languages
-    const queryTemplates = {
-        'zh-CN': `${companyName}的负面新闻有哪些？依次列出。`,
-        'zh-HK': `${companyName}的負面新聞有哪些？依次列出。`,
-        'zh-TW': `${companyName}的負面新聞有哪些？依次列出。`,
-        'en-US': `What are the negative news about ${companyName}? Please list them in order.`,
-        'ja-JP': `${companyName}のネガティブなニュースは何ですか？順番に列挙してください。`
-    };
-    
-    // Get the query template for the selected language
-    const defaultQuery = queryTemplates[lang] || queryTemplates['en-US'];
-    
-    // Set the default query in the textarea
-    $('#ta_qa_query').val(defaultQuery);
-}
-
-// Export functions for external use
-window.performSearch = performSearch;
-window.showAlert = showAlert;
-window.getNewsContent = getNewsContent;
-window.performTagging = performTagging;
-window.performSummary = performSummary;
-window.performQA = performQA;
-window.setDefaultQAQuery = setDefaultQAQuery;
-window.performQA = performQA;
-
+// QA functionality
 function performQA() {
-    const newsRows = $('#news-results-table tbody tr');
-    if (newsRows.length === 0) {
-        showAlert('No news results found', 'warning');
-        return;
-    }
-    
-    // Check if session_id exists
-    if (!currentSessionId) {
-        showAlert('Session ID not found, please search again', 'danger');
-        return;
-    }
+    if (!Utils.validateResults() || !Utils.validateSession()) return;
     
     const question = $('#ta_qa_query').val().trim();
     if (!question) {
-        showAlert('Please enter a question', 'warning');
+        AlertManager.show('Please enter a question', 'warning');
         return;
     }
     
-    // Get all news URLs
-    const urls = [];
-    newsRows.each(function() {
-        const url = $(this).data('url');
-        if (url) {
-            urls.push(url);
-        }
-    });
-    
-    // Collect request parameters
     const requestData = {
         question: question,
         company_name: $('#company_name').val().trim(),
         lang: $('#lang').val(),
-        urls: urls,
-        session_id: currentSessionId
+        urls: AppState.getUrls(),
+        llm_model: $('#llm_model').val(),
+        session_id: AppState.sessionId
     };
     
-    // Call API for Q&A processing
-    $.ajax({
+    AjaxHelper.makeRequest({
         url: '/api/qa',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify(requestData),
+        data: requestData,
         timeout: 300000,
-        xhrFields: {
-            withCredentials: true
-        },
-        beforeSend: function() {
-            console.log('QA AJAX beforeSend triggered');
-            // Disable QA button to prevent duplicate submission
-            $('#btn_qa_submit').prop('disabled', true);
-            showAlert(`
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm me-2" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    Processing Q&A request, please wait...
-                </div>
-            `, 'info', false);
+        beforeSend: () => {
+            UIState.toggleSubmitButton('#btn_qa_submit', true);
+            AlertManager.showLoading('Processing Q&A request, please wait...');
         }
-    }).done(function(response) {
-        console.log('QA AJAX done triggered');
-        hideAlert();
-        handleQASuccess(response);
-    }).fail(function(xhr, status, error) {
-        console.log('QA AJAX fail triggered');
-        hideAlert();
-        handleQAError(xhr, status, error);
-    }).always(function() {
-        console.log('QA AJAX always triggered');
-        // Re-enable Q&A button
-        $('#btn_qa_submit').prop('disabled', false);
+    })
+    .done(handleQASuccess)
+    .fail((xhr, status, error) => {
+        AlertManager.hide();
+        const message = AjaxHelper.handleError(xhr, status, 'Q&A processing');
+        AlertManager.showError('Q&A Processing Failed', message);
+        console.error('QA error:', { xhr, status, error });
+    })
+    .always(() => {
+        UIState.toggleSubmitButton('#btn_qa_submit', false);
     });
 }
 
 function handleQASuccess(response) {
+    AlertManager.hide();
+    
     if (response.success && response.answer) {
-        // Display Q&A result
         displayQAResult(response.question, response.answer);
-        showAlert(response.message || 'Q&A processing successful', 'success', false);
+        AlertManager.show(response.message || 'Q&A processing successful', 'success', false);
     } else {
-        showAlert(response.message || 'Q&A processing failed', 'danger');
+        AlertManager.show(response.message || 'Q&A processing failed', 'danger');
     }
-}
-
-function handleQAError(xhr, status, error) {
-    let errorMessage = 'Q&A processing failed, please try again later';
-    
-    if (xhr.responseJSON && xhr.responseJSON.message) {
-        errorMessage = xhr.responseJSON.message;
-    } else if (xhr.responseText) {
-        errorMessage = `Server response: ${xhr.responseText}`;
-    } else if (status === 'timeout') {
-        errorMessage = 'Q&A processing timeout, please check network connection or try again later';
-    } else if (xhr.status === 0) {
-        errorMessage = 'Unable to connect to server, please check network settings or confirm server is running';
-    } else if (xhr.status === 500) {
-        errorMessage = 'Server internal error, possibly Q&A processing configuration issue';
-    } else if (xhr.status === 404) {
-        errorMessage = 'API endpoint does not exist, please check server configuration';
-    }
-    
-    showAlert(`
-        <div class="alert-content">
-            <div class="fw-bold">Q&A Processing Failed</div>
-            <div class="mt-2">
-                <small>${errorMessage}</small>
-            </div>
-        </div>
-    `, 'danger');
-    
-    console.error('QA error:', { xhr, status, error });
 }
 
 function displayQAResult(question, answer) {
-    // Append and display Q&A results in div_qa_res
     const qaHtml = `
         <div class="qa-item mb-3 p-3 border rounded">
             <div class="question mb-2">
                 <strong class="text-primary">Q: </strong>
-                <span>${escapeHtml(question)}</span>
+                <span>${Utils.escapeHtml(question)}</span>
             </div>
             <div class="answer">
                 <strong class="text-success">A: </strong>
-                <span style="white-space: pre-wrap; line-height: 1.6;">${escapeHtml(answer)}</span>
+                <span style="white-space: pre-wrap; line-height: 1.6;">${Utils.escapeHtml(answer)}</span>
             </div>
             <div class="mt-2">
                 <small class="text-muted">
@@ -893,22 +672,18 @@ function displayQAResult(question, answer) {
         </div>
     `;
     
-    // Display area and append content
     const qaDiv = $('#div_qa_res');
     if (qaDiv.is(':hidden')) {
-        qaDiv.show();
-        qaDiv.html(`
+        qaDiv.show().html(`
             <div class="p-3">
-                <h5 class="mb-3">                <i class="bi bi-question-circle me-2"></i>
-                Q&A Results
-            </h5>
-            <div class="qa-content">
-                ${qaHtml}
-            </div>
+                <h5 class="mb-3">
+                    <i class="bi bi-question-circle me-2"></i>
+                    Q&A Results
+                </h5>
+                <div class="qa-content">${qaHtml}</div>
             </div>
         `);
     } else {
-        // Append to existing content
         qaDiv.find('.qa-content').append(qaHtml);
     }
     
@@ -918,3 +693,37 @@ function displayQAResult(question, answer) {
         block: 'nearest' 
     });
 }
+
+function setDefaultQAQuery() {
+    const companyName = $('#company_name').val().trim();
+    const lang = $('#lang').val();
+    
+    if (!companyName) {
+        $('#ta_qa_query').val('');
+        return;
+    }
+    
+    const queryTemplates = {
+        'zh-CN': `${companyName}的负面新闻有哪些？依次列出。`,
+        'zh-HK': `${companyName}的負面新聞有哪些？依次列出。`,
+        'zh-TW': `${companyName}的負面新聞有哪些？依次列出。`,
+        'en-US': `What are the negative news about ${companyName}? Please list them in order.`,
+        'ja-JP': `${companyName}のネガティブなニュースは何ですか？順番に列挙してください。`
+    };
+    
+    const defaultQuery = queryTemplates[lang] || queryTemplates['en-US'];
+    $('#ta_qa_query').val(defaultQuery);
+}
+
+// Export functions for global access (maintaining backward compatibility)
+Object.assign(window, {
+    performSearch,
+    getNewsContent,
+    performTagging,
+    performSummary,
+    performQA,
+    setDefaultQAQuery,
+    // Legacy support
+    showAlert: AlertManager.show,
+    hideAlert: AlertManager.hide
+});

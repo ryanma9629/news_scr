@@ -144,7 +144,7 @@ class GoogleSerperNews(WebSearch):
         return self._get_location_mapping("google")
 
     def search(
-        self, keywords: str, max_results: int = 10, **kwargs
+        self, keywords: str, max_results: int = 5, **kwargs
     ) -> Optional[List[SearchResult]]:
         """
         Search for news using Google Serper API.
@@ -173,8 +173,10 @@ class GoogleSerperNews(WebSearch):
             search_results = search.results(keywords).get("news")
 
             if search_results:
-                logger.info(f"Found {len(search_results)} results from Google")
-                return self._create_search_result(search_results)
+                # Ensure we don't return more results than requested
+                limited_results = search_results[:max_results]
+                logger.info(f"Found {len(search_results)} results from Google, returning {len(limited_results)}")
+                return self._create_search_result(limited_results)
             else:
                 logger.warning("No results found from Google")
                 return None
@@ -256,8 +258,10 @@ class BingSearch(WebSearch):
             search_results = search.results(keywords, num_results=max_results)
 
             if search_results:
-                logger.info(f"Found {len(search_results)} results from Bing")
-                return self._create_search_result(search_results)
+                # Ensure we don't return more results than requested
+                limited_results = search_results[:max_results]
+                logger.info(f"Found {len(search_results)} results from Bing, returning {len(limited_results)}")
+                return self._create_search_result(limited_results)
             else:
                 logger.warning("No results found from Bing")
                 return None

@@ -118,11 +118,14 @@
                             <option value="gpt-4.1">GPT-4.1</option>
                             <option value="gpt-4o" selected>GPT-4o</option>
                             <option value="gpt-4o-mini">GPT-4o Mini</option>
-                            <option value="qwen-max">Qwen Max</option>
-                            <option value="qwen-plus">Qwen Plus</option>
-                            <option value="qwen-turbo">Qwen Turbo</option>
-                            <option value="deepseek-v3">DeepSeek V3</option>
+                            <option value="qwen-max" disabled style="color: #999;">Qwen Max (Not Supported)</option>
+                            <option value="qwen-plus" disabled style="color: #999;">Qwen Plus (Not Supported)</option>
+                            <option value="qwen-turbo" disabled style="color: #999;">Qwen Turbo (Not Supported)</option>
+                            <option value="deepseek-v3" disabled style="color: #999;">DeepSeek V3 (Not Supported)</option>
                         </select>
+                        <div class="form-text">
+                            <small class="text-muted">Currently supported: GPT-4.1, GPT-4o, GPT-4o Mini</small>
+                        </div>
                     </div>
                     <div class="mx-1 my-4">
                         <input type="submit" class="btn btn-primary" value="Click to search">
