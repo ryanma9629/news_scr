@@ -1,8 +1,10 @@
 import logging
+import hashlib
 from pathlib import Path
 from typing import List, Optional
+from datetime import datetime, timedelta
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +20,51 @@ from websearch import BingSearch, GoogleSerperNews
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Session storage
+SESSION_STORE = {}
+SESSION_TIMEOUT_HOURS = 2
+
+def generate_session_id(ip: str, user_agent: str = "") -> str:
+    """Generate session ID based on client info and timestamp."""
+    timestamp = str(datetime.now().timestamp())
+    content = f"{ip}_{user_agent}_{timestamp}"
+    return hashlib.md5(content.encode()).hexdigest()
+
+def get_session_data(session_id: str) -> dict:
+    """Get session data for given session ID."""
+    session = SESSION_STORE.get(session_id, {})
+    if session:
+        # Update last accessed time
+        session["last_accessed"] = datetime.now()
+    return session
+
+def update_session_data(session_id: str, key: str, value):
+    """Update session data for given session ID and key."""
+    if session_id not in SESSION_STORE:
+        SESSION_STORE[session_id] = {
+            "created_at": datetime.now(),
+            "last_accessed": datetime.now(),
+            "search_results": [],
+            "web_contents": {},
+            "user_context": {}
+        }
+    
+    SESSION_STORE[session_id][key] = value
+    SESSION_STORE[session_id]["last_accessed"] = datetime.now()
+
+def cleanup_expired_sessions():
+    """Remove expired sessions."""
+    cutoff_time = datetime.now() - timedelta(hours=SESSION_TIMEOUT_HOURS)
+    expired_sessions = []
+    
+    for session_id, session_data in SESSION_STORE.items():
+        if session_data.get("last_accessed", datetime.now()) < cutoff_time:
+            expired_sessions.append(session_id)
+    
+    for session_id in expired_sessions:
+        del SESSION_STORE[session_id]
+        logger.info(f"Cleaned up expired session: {session_id}")
 
 app = FastAPI(title="News Search API", version="1.0.0")
 
@@ -47,6 +94,7 @@ class SearchRequest(BaseModel):
         ..., ge=1, le=100, description="Number of results to return"
     )
     llm_model: str = Field(..., description="LLM model to use")
+    session_id: Optional[str] = Field(None, description="Session ID for data persistence")
 
 
 class CrawlerRequest(BaseModel):
@@ -64,6 +112,7 @@ class CrawlerRequest(BaseModel):
     contents_load_days: int = Field(
         default=90, description="Only load contents no older than this many days"
     )
+    session_id: Optional[str] = Field(None, description="Session ID for data persistence")
 
 
 class TaggingRequest(BaseModel):
@@ -81,6 +130,7 @@ class TaggingRequest(BaseModel):
     tags_load_days: int = Field(
         default=90, description="Only load tags no older than this many days"
     )
+    session_id: Optional[str] = Field(None, description="Session ID for data persistence")
 
 
 class SummaryRequest(BaseModel):
@@ -91,6 +141,7 @@ class SummaryRequest(BaseModel):
     max_words: int = Field(default=300, description="Maximum number of words in summary")
     cluster_docs: bool = Field(default=True, description="Whether to cluster documents before summarization")
     num_clusters: int = Field(default=2, description="Number of clusters for document clustering")
+    session_id: Optional[str] = Field(None, description="Session ID for data persistence")
 
 
 class QARequest(BaseModel):
@@ -98,6 +149,7 @@ class QARequest(BaseModel):
     company_name: str = Field(..., description="Company name for context")
     lang: str = Field(..., description="Language code")
     urls: List[str] = Field(..., description="URLs to use as context")
+    session_id: Optional[str] = Field(None, description="Session ID for data persistence")
 
 
 # Response models
@@ -118,6 +170,7 @@ class SearchResponse(BaseModel):
     results: List[SearchResultResponse]
     total_results: int
     message: str
+    session_id: Optional[str] = None
 
 
 class CrawlerResponse(BaseModel):
@@ -220,13 +273,21 @@ async def serve_index():
 
 
 @app.post("/api/search", response_model=SearchResponse)
-async def search_news(request: SearchRequest):
+async def search_news(http_request: Request, request: SearchRequest):
     """
     Search for news articles based on company name and parameters.
     """
     try:
+        # Clean up expired sessions
+        cleanup_expired_sessions()
+        
+        # Generate session ID if not provided
+        client_ip = http_request.client.host if http_request.client else "unknown"
+        user_agent = http_request.headers.get("user-agent", "")
+        session_id = request.session_id or generate_session_id(client_ip, user_agent)
+        
         logger.info(
-            f"Searching for: {request.company_name} with engine: {request.search_engine}"
+            f"Searching for: {request.company_name} with engine: {request.search_engine}, session: {session_id}"
         )
 
         # Generate search keywords
@@ -250,7 +311,8 @@ async def search_news(request: SearchRequest):
                 success=False,
                 results=[],
                 total_results=0,
-                message="搜索失败，请检查网络连接或API配置",
+                message="Search failed, please check network connection or API configuration",
+                session_id=session_id
             )
 
         # Convert results to response format
@@ -259,34 +321,66 @@ async def search_news(request: SearchRequest):
             for result in results
         ]
 
+        # Store search results and user context in session
+        update_session_data(session_id, "search_results", [
+            {"url": result["url"], "title": result["title"]} for result in results
+        ])
+        update_session_data(session_id, "user_context", {
+            "company_name": request.company_name,
+            "lang": request.lang,
+            "search_params": {
+                "search_suffix": request.search_suffix,
+                "search_engine": request.search_engine,
+                "num_results": request.num_results,
+                "llm_model": request.llm_model
+            }
+        })
+
         return SearchResponse(
             success=True,
             results=search_results,
             total_results=len(search_results),
-            message=f"成功找到 {len(search_results)} 条新闻",
+            message=f"Successfully found {len(search_results)} news articles",
+            session_id=session_id
         )
 
     except Exception as e:
         logger.error(f"Search error: {str(e)}")
         return SearchResponse(
-            success=False, results=[], total_results=0, message=f"搜索出错: {str(e)}"
+            success=False, 
+            results=[], 
+            total_results=0, 
+            message=f"Search error: {str(e)}",
+            session_id=request.session_id
         )
 
 
 @app.post("/api/crawler", response_model=CrawlerResponse)
 async def crawl_news_content(request: CrawlerRequest):
     """
-    Crawl content from news URLs using ApifyCrawler with storage support.
+    Crawl content from news URLs using ApifyCrawler with storage and session support.
     """
     try:
-        logger.info(f"Starting to crawl {len(request.urls)} URLs")
+        # Clean up expired sessions
+        cleanup_expired_sessions()
+        
+        session_id = request.session_id
+        if not session_id:
+            return CrawlerResponse(
+                success=False,
+                results=[],
+                total_results=0,
+                message="Session ID is required",
+            )
+
+        logger.info(f"Starting to crawl {len(request.urls)} URLs for session: {session_id}")
 
         if not request.urls:
             return CrawlerResponse(
                 success=False,
                 results=[],
                 total_results=0,
-                message="没有提供要爬取的URL",
+                message="No URLs provided for crawling",
             )
 
         # Initialize MongoStore for storage operations
@@ -295,22 +389,23 @@ async def crawl_news_content(request: CrawlerRequest):
         # Initialize results list
         results = []
         urls_to_crawl = []
+        contents_from_db = []
 
-        # Step 1: If contents_load is enabled, try to load from storage first
+        # Step 1: If contents_load is enabled, try to load from MongoDB first
         if request.contents_load:
             try:
                 logger.info(
-                    f"Loading contents from storage (within {request.contents_load_days} days)..."
+                    f"Loading contents from MongoDB (within {request.contents_load_days} days)..."
                 )
-                stored_contents = mongo_store.load_contents(
+                contents_from_db = mongo_store.load_contents(
                     request.urls, days=request.contents_load_days
                 )
 
                 # Create mapping of stored content
-                stored_urls = {content["url"] for content in stored_contents}
+                stored_urls = {content["url"] for content in contents_from_db}
 
                 # Add stored contents to results
-                for content in stored_contents:
+                for content in contents_from_db:
                     results.append(
                         CrawlerResultResponse(
                             url=content["url"],
@@ -319,16 +414,16 @@ async def crawl_news_content(request: CrawlerRequest):
                             error=None,
                         )
                     )
-                    logger.info(f"Loaded from storage: {content['url']}")
+                    logger.info(f"Loaded from MongoDB: {content['url']}")
 
                 # Only crawl URLs that are not in storage
                 urls_to_crawl = [url for url in request.urls if url not in stored_urls]
                 logger.info(
-                    f"Found {len(stored_contents)} URLs in storage, {len(urls_to_crawl)} URLs to crawl"
+                    f"Found {len(contents_from_db)} URLs in MongoDB, {len(urls_to_crawl)} URLs to crawl"
                 )
 
             except Exception as e:
-                logger.error(f"Error loading from storage: {str(e)}")
+                logger.error(f"Error loading from MongoDB: {str(e)}")
                 # If storage loading fails, crawl all URLs
                 urls_to_crawl = request.urls
         else:
@@ -380,7 +475,7 @@ async def crawl_news_content(request: CrawlerRequest):
                                     url=url,
                                     success=False,
                                     content=None,
-                                    error="内容为空",
+                                    error="Content is empty",
                                 )
                             )
                             logger.warning(f"Empty content for URL: {url}")
@@ -390,23 +485,23 @@ async def crawl_news_content(request: CrawlerRequest):
                                 url=url,
                                 success=False,
                                 content=None,
-                                error="未找到该URL的内容",
+                                error="Content not found for this URL",
                             )
                         )
                         logger.warning(f"No content found for URL: {url}")
 
-                # Step 3: Save crawled contents to storage if enabled
+                # Step 3: Save crawled contents to MongoDB if enabled
                 if request.contents_save and crawled_contents:
                     try:
                         logger.info(
-                            f"Saving {len(crawled_contents)} contents to storage (only update if older than {request.contents_save_days} days)..."
+                            f"Saving {len(crawled_contents)} contents to MongoDB (only update if older than {request.contents_save_days} days)..."
                         )
                         mongo_store.save_contents(
                             crawled_contents, days=request.contents_save_days
                         )
-                        logger.info("Successfully saved contents to storage")
+                        logger.info("Successfully saved contents to MongoDB")
                     except Exception as e:
-                        logger.error(f"Error saving to storage: {str(e)}")
+                        logger.error(f"Error saving to MongoDB: {str(e)}")
                         # Don't fail the entire request if storage fails
 
             except Exception as crawler_error:
@@ -418,9 +513,22 @@ async def crawl_news_content(request: CrawlerRequest):
                             url=url,
                             success=False,
                             content=None,
-                            error=f"爬取失败: {str(crawler_error)}",
+                            error=f"Crawling failed: {str(crawler_error)}",
                         )
                     )
+
+        # Step 4: Merge all contents (from MongoDB + crawled) and store in session
+        all_contents = {}
+        for content in contents_from_db:
+            all_contents[content["url"]] = content["text"]
+        
+        for result in results:
+            if result.success and result.content:
+                all_contents[result.url] = result.content
+
+        # Store merged contents in session
+        update_session_data(session_id, "web_contents", all_contents)
+        logger.info(f"Stored {len(all_contents)} contents in session {session_id}")
 
         success_count = sum(1 for r in results if r.success)
 
@@ -428,7 +536,7 @@ async def crawl_news_content(request: CrawlerRequest):
             success=True,
             results=results,
             total_results=len(results),
-            message=f"爬取完成：成功 {success_count} 条，失败 {len(results) - success_count} 条",
+            message=f"Crawling completed: {success_count} successful, {len(results) - success_count} failed",
         )
 
     except Exception as e:
@@ -436,7 +544,7 @@ async def crawl_news_content(request: CrawlerRequest):
         # Even in case of general error, try to return failed results for all URLs
         failed_results = [
             CrawlerResultResponse(
-                url=url, success=False, content=None, error=f"系统错误: {str(e)}"
+                url=url, success=False, content=None, error=f"System error: {str(e)}"
             )
             for url in request.urls
         ]
@@ -445,24 +553,36 @@ async def crawl_news_content(request: CrawlerRequest):
             success=False,
             results=failed_results,
             total_results=len(failed_results),
-            message=f"系统错误: {str(e)}",
+            message=f"System error: {str(e)}",
         )
 
 
 @app.post("/api/tagging", response_model=TaggingResponse)
 async def tag_news_content(request: TaggingRequest):
     """
-    Perform FC Tagging on news content with storage support.
+    Perform FC Tagging on news content with storage and session support.
     """
     try:
-        logger.info(f"Starting FC Tagging for {len(request.urls)} URLs")
+        # Clean up expired sessions
+        cleanup_expired_sessions()
+        
+        session_id = request.session_id
+        if not session_id:
+            return TaggingResponse(
+                success=False,
+                results=[],
+                total_results=0,
+                message="Session ID is required",
+            )
+
+        logger.info(f"Starting FC Tagging for {len(request.urls)} URLs, session: {session_id}")
 
         if not request.urls:
             return TaggingResponse(
                 success=False,
                 results=[],
                 total_results=0,
-                message="没有提供要标记的URL",
+                message="No URLs provided for tagging",
             )
 
         # Initialize MongoStore for storage operations
@@ -471,14 +591,15 @@ async def tag_news_content(request: TaggingRequest):
         # Initialize results list
         results = []
         urls_to_tag = []
+        tags_from_db = []
 
-        # Step 1: If tags_load is enabled, try to load from storage first
+        # Step 1: If tags_load is enabled, try to load from MongoDB first
         if request.tags_load:
             try:
                 logger.info(
-                    f"Loading tags from storage (within {request.tags_load_days} days)..."
+                    f"Loading tags from MongoDB (within {request.tags_load_days} days)..."
                 )
-                stored_tags = mongo_store.load_tags(
+                tags_from_db = mongo_store.load_tags(
                     request.urls, 
                     method=request.tagging_method,
                     llm_name="gpt-4o",
@@ -486,10 +607,10 @@ async def tag_news_content(request: TaggingRequest):
                 )
 
                 # Create mapping of stored tags
-                stored_urls = {tag["url"] for tag in stored_tags}
+                stored_urls = {tag["url"] for tag in tags_from_db}
 
                 # Add stored tags to results
-                for tag in stored_tags:
+                for tag in tags_from_db:
                     results.append(
                         TaggingResultResponse(
                             url=tag["url"],
@@ -499,16 +620,16 @@ async def tag_news_content(request: TaggingRequest):
                             error=None,
                         )
                     )
-                    logger.info(f"Loaded tags from storage: {tag['url']}")
+                    logger.info(f"Loaded tags from MongoDB: {tag['url']}")
 
                 # Only tag URLs that are not in storage
                 urls_to_tag = [url for url in request.urls if url not in stored_urls]
                 logger.info(
-                    f"Found {len(stored_tags)} URLs in storage, {len(urls_to_tag)} URLs to tag"
+                    f"Found {len(tags_from_db)} URLs in MongoDB, {len(urls_to_tag)} URLs to tag"
                 )
 
             except Exception as e:
-                logger.error(f"Error loading tags from storage: {str(e)}")
+                logger.error(f"Error loading tags from MongoDB: {str(e)}")
                 # If storage loading fails, tag all URLs
                 urls_to_tag = request.urls
         else:
@@ -520,21 +641,43 @@ async def tag_news_content(request: TaggingRequest):
             logger.info(f"Tagging {len(urls_to_tag)} URLs")
 
             try:
-                # First, get the contents for these URLs
-                contents_to_tag = mongo_store.load_contents(urls_to_tag, days=0)  # Load all available contents
+                # Get contents from session first
+                session_data = get_session_data(session_id)
+                web_contents = session_data.get("web_contents", {})
+                
+                contents_to_tag = []
+                urls_without_content = []
+                
+                # Check which URLs have content in session
+                for url in urls_to_tag:
+                    if url in web_contents:
+                        contents_to_tag.append({"url": url, "text": web_contents[url]})
+                    else:
+                        urls_without_content.append(url)
+                
+                # If some URLs don't have content in session, try MongoDB as fallback
+                if urls_without_content:
+                    logger.info(f"Trying to load {len(urls_without_content)} URLs from MongoDB as fallback")
+                    fallback_contents = mongo_store.load_contents(urls_without_content, days=0)
+                    contents_to_tag.extend(fallback_contents)
+                    
+                    # Update URLs without content
+                    fallback_urls = {content["url"] for content in fallback_contents}
+                    urls_without_content = [url for url in urls_without_content if url not in fallback_urls]
+                
+                # Mark URLs without content as failed
+                for url in urls_without_content:
+                    results.append(
+                        TaggingResultResponse(
+                            url=url,
+                            success=False,
+                            crime_type=None,
+                            probability=None,
+                            error="Content not found for this URL, please get content first",
+                        )
+                    )
                 
                 if not contents_to_tag:
-                    # If no contents found, mark all URLs as failed
-                    for url in urls_to_tag:
-                        results.append(
-                            TaggingResultResponse(
-                                url=url,
-                                success=False,
-                                crime_type=None,
-                                probability=None,
-                                error="未找到该URL的内容，请先获取内容",
-                            )
-                        )
                     logger.warning("No content found for tagging")
                 else:
                     # Initialize FCTagging
@@ -596,7 +739,7 @@ async def tag_news_content(request: TaggingRequest):
                                     success=False,
                                     crime_type=None,
                                     probability=None,
-                                    error=f"标记失败: {str(tag_error)}",
+                                    error=f"Tagging failed: {str(tag_error)}",
                                 )
                             )
                             logger.error(f"Error tagging URL {url}: {str(tag_error)}")
@@ -611,7 +754,7 @@ async def tag_news_content(request: TaggingRequest):
                                     success=False,
                                     crime_type=None,
                                     probability=None,
-                                    error="未找到该URL的内容，请先获取内容",
+                                    error="Content not found for this URL, please get content first",
                                 )
                             )
                     
@@ -642,7 +785,7 @@ async def tag_news_content(request: TaggingRequest):
                             success=False,
                             crime_type=None,
                             probability=None,
-                            error=f"标记失败: {str(tagging_error)}",
+                            error=f"Tagging failed: {str(tagging_error)}",
                         )
                     )
 
@@ -652,7 +795,7 @@ async def tag_news_content(request: TaggingRequest):
             success=True,
             results=results,
             total_results=len(results),
-            message=f"标记完成：成功 {success_count} 条，失败 {len(results) - success_count} 条",
+            message=f"Tagging completed: {success_count} successful, {len(results) - success_count} failed",
         )
 
     except Exception as e:
@@ -660,7 +803,7 @@ async def tag_news_content(request: TaggingRequest):
         # Even in case of general error, try to return failed results for all URLs
         failed_results = [
             TaggingResultResponse(
-                url=url, success=False, crime_type=None, probability=None, error=f"系统错误: {str(e)}"
+                url=url, success=False, crime_type=None, probability=None, error=f"System error: {str(e)}"
             )
             for url in request.urls
         ]
@@ -669,48 +812,60 @@ async def tag_news_content(request: TaggingRequest):
             success=False,
             results=failed_results,
             total_results=len(failed_results),
-            message=f"系统错误: {str(e)}",
+            message=f"System error: {str(e)}",
         )
 
 
 @app.post("/api/summary", response_model=SummaryResponse)
 async def summarize_news_content(request: SummaryRequest):
     """
-    Perform summarization on news content.
+    Perform summarization on news content from session.
     """
     try:
-        logger.info(f"Starting summarization for {len(request.urls)} URLs")
+        # Clean up expired sessions
+        cleanup_expired_sessions()
+        
+        session_id = request.session_id
+        if not session_id:
+            return SummaryResponse(
+                success=False,
+                summary=None,
+                message="Session ID is required",
+            )
+
+        logger.info(f"Starting summarization for {len(request.urls)} URLs, session: {session_id}")
 
         if not request.urls:
             return SummaryResponse(
                 success=False,
                 summary=None,
-                message="没有提供要摘要的URL",
+                message="No URLs provided for summarization",
             )
 
-        # Initialize MongoStore for storage operations
-        mongo_store = MongoStore(company_name=request.company_name, lang=request.lang)
-
-        # Get contents for the URLs
-        try:
-            contents_to_summarize = mongo_store.load_contents(request.urls, days=0)  # Load all available contents
-            
-            if not contents_to_summarize:
-                return SummaryResponse(
-                    success=False,
-                    summary=None,
-                    message="未找到要摘要的内容，请先获取内容",
-                )
-                
-            logger.info(f"Found {len(contents_to_summarize)} contents to summarize")
-
-        except Exception as e:
-            logger.error(f"Error loading contents for summarization: {str(e)}")
+        # Get contents from session
+        session_data = get_session_data(session_id)
+        web_contents = session_data.get("web_contents", {})
+        
+        contents_to_summarize = []
+        missing_urls = []
+        
+        for url in request.urls:
+            if url in web_contents:
+                contents_to_summarize.append({"url": url, "text": web_contents[url]})
+            else:
+                missing_urls.append(url)
+        
+        if missing_urls:
+            logger.warning(f"URLs not found in session: {missing_urls}")
+        
+        if not contents_to_summarize:
             return SummaryResponse(
                 success=False,
                 summary=None,
-                message=f"加载内容失败: {str(e)}",
+                message="Content not found for summarization, please get content first",
             )
+            
+        logger.info(f"Found {len(contents_to_summarize)} contents to summarize")
 
         try:
             # Initialize LLM and embeddings
@@ -753,7 +908,7 @@ async def summarize_news_content(request: SummaryRequest):
             return SummaryResponse(
                 success=True,
                 summary=summary,
-                message=f"摘要生成成功，处理了 {len(contents_to_summarize)} 篇内容",
+                message=f"Summary generated successfully, processed {len(contents_to_summarize)} articles",
             )
 
         except Exception as summarization_error:
@@ -761,7 +916,7 @@ async def summarize_news_content(request: SummaryRequest):
             return SummaryResponse(
                 success=False,
                 summary=None,
-                message=f"摘要生成失败: {str(summarization_error)}",
+                message=f"Summary generation failed: {str(summarization_error)}",
             )
 
     except Exception as e:
@@ -769,19 +924,31 @@ async def summarize_news_content(request: SummaryRequest):
         return SummaryResponse(
             success=False,
             summary=None,
-            message=f"系统错误: {str(e)}",
+            message=f"System error: {str(e)}",
         )
 
 
 @app.post("/api/qa", response_model=QAResponse)
 async def qa_endpoint(request: QARequest):
-    """Process QA request with context from URLs."""
+    """Process QA request with context from session."""
     from langchain_core.documents import Document
     from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     
     try:
-        logger.info(f"Processing QA request for company: {request.company_name}")
+        # Clean up expired sessions
+        cleanup_expired_sessions()
+        
+        session_id = request.session_id
+        if not session_id:
+            return QAResponse(
+                success=False,
+                question=request.question,
+                answer=None,
+                message="Session ID is required"
+            )
+
+        logger.info(f"Processing QA request for company: {request.company_name}, session: {session_id}")
         
         # Initialize LLM and embeddings
         llm = AzureChatOpenAI(
@@ -791,22 +958,32 @@ async def qa_endpoint(request: QARequest):
         )
         
         embeddings = AzureOpenAIEmbeddings(
-            azure_deployment="text-embedding-3-large",
+            azure_deployment="text-embedding-3-small",
             chunk_size=1000
         )
         
-        # Initialize MongoStore to get content from URLs
-        store = MongoStore(company_name=request.company_name, lang=request.lang)
+        # Get contents from session
+        session_data = get_session_data(session_id)
+        web_contents = session_data.get("web_contents", {})
         
-        # Load content from URLs
-        contents = store.load_contents(request.urls)
+        contents = []
+        missing_urls = []
+        
+        for url in request.urls:
+            if url in web_contents:
+                contents.append({"url": url, "text": web_contents[url]})
+            else:
+                missing_urls.append(url)
+        
+        if missing_urls:
+            logger.warning(f"URLs not found in session: {missing_urls}")
         
         if not contents:
             return QAResponse(
                 success=False,
                 question=request.question,
                 answer=None,
-                message="没有找到相关的内容用于回答问题"
+                message="No relevant content found for answering the question"
             )
         
         # Convert contents to documents
@@ -824,7 +1001,7 @@ async def qa_endpoint(request: QARequest):
                 success=False,
                 question=request.question,
                 answer=None,
-                message="没有找到有效的文档内容用于回答问题"
+                message="No valid document content found for answering the question"
             )
         
         # Split documents into chunks
@@ -845,13 +1022,11 @@ async def qa_endpoint(request: QARequest):
             docs=split_docs
         )
         
-        store.close()
-        
         return QAResponse(
             success=True,
             question=result.get("question", request.question),
             answer=result.get("answer"),
-            message="问答处理成功"
+            message="Q&A processing successful"
         )
         
     except Exception as e:
@@ -860,7 +1035,7 @@ async def qa_endpoint(request: QARequest):
             success=False,
             question=request.question,
             answer=None,
-            message=f"问答处理失败: {str(e)}"
+            message=f"Q&A processing failed: {str(e)}"
         )
 
 
@@ -868,6 +1043,61 @@ async def qa_endpoint(request: QARequest):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "message": "News Search API is running"}
+
+
+# Session management endpoints
+@app.get("/api/session/{session_id}/status")
+async def get_session_status(session_id: str):
+    """Get session status."""
+    cleanup_expired_sessions()
+    
+    session_data = get_session_data(session_id)
+    if not session_data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    search_results = session_data.get("search_results", [])
+    web_contents = session_data.get("web_contents", {})
+    user_context = session_data.get("user_context", {})
+    
+    created_at = session_data.get("created_at")
+    last_accessed = session_data.get("last_accessed")
+    
+    return {
+        "session_id": session_id,
+        "created_at": created_at.isoformat() if created_at else None,
+        "last_accessed": last_accessed.isoformat() if last_accessed else None,
+        "search_results_count": len(search_results),
+        "web_contents_count": len(web_contents),
+        "user_context": user_context,
+        "urls_with_content": list(web_contents.keys())
+    }
+
+@app.delete("/api/session/{session_id}")
+async def clear_session(session_id: str):
+    """Clear session data."""
+    if session_id in SESSION_STORE:
+        del SESSION_STORE[session_id]
+        return {"message": f"Session {session_id} cleared successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+@app.get("/api/session/{session_id}/contents")
+async def get_session_contents(session_id: str):
+    """Get session contents."""
+    cleanup_expired_sessions()
+    
+    session_data = get_session_data(session_id)
+    if not session_data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    web_contents = session_data.get("web_contents", {})
+    return {
+        "session_id": session_id,
+        "contents": [
+            {"url": url, "text_length": len(text)} 
+            for url, text in web_contents.items()
+        ]
+    }
 
 
 # Mount root directory for direct file access (must be after all API routes)

@@ -1,6 +1,9 @@
 // JavaScript for News Search Application (news_scr.js)
 // Handles web search functionality, result display, and user interactions
 
+// Global session management
+let currentSessionId = null;
+
 $(document).ready(function() {
     // Initialize the application
     initializeApp();
@@ -63,53 +66,58 @@ function performSearch() {
     
     // Validate form data
     if (!formData.company_name) {
-        showAlert('请输入公司名称', 'danger');
+        showAlert('Please enter company name', 'danger');
         return;
     }
-    
-    // Show loading message with spinner
-    showAlert(`
-        <div class="d-flex align-items-center">
-            <div class="spinner-border spinner-border-sm me-2" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            正在使用 ${formData.search_engine} 搜索"${formData.company_name}"相关新闻，请稍候...
-        </div>
-    `, 'info');
     
     // Hide previous results
     hideSearchResults();
     
     // Disable form during search
     $('#frm_web_search input, #frm_web_search select').prop('disabled', true);
-    $('#frm_web_search input[type="submit"]').val('搜索中...');
+    $('#frm_web_search input[type="submit"]').val('Searching...');
     
     // Make API request
     $.ajax({
-        url: 'http://127.0.0.1:8280/api/search',  // 指定完整的API服务器地址
+        url: 'http://127.0.0.1:8280/api/search',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(formData),
-        timeout: 30000, // 30 second timeout
-        success: function(response) {
-            handleSearchSuccess(response);
-        },
-        error: function(xhr, status, error) {
-            handleSearchError(xhr, status, error);
-        },
-        complete: function() {
-            // Re-enable form
-            $('#frm_web_search input, #frm_web_search select').prop('disabled', false);
-            $('#frm_web_search input[type="submit"]').val('Click to search');
+        timeout: 30000,
+        beforeSend: function() {
+            showAlert(`
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    Searching for "${formData.company_name}" related news using ${formData.search_engine}, please wait...
+                </div>
+            `, 'info', false);
         }
+    }).done(function(response) {
+        hideAlert();
+        handleSearchSuccess(response);
+    }).fail(function(xhr, status, error) {
+        hideAlert();
+        handleSearchError(xhr, status, error);
+    }).always(function() {
+        // Re-enable form
+        $('#frm_web_search input, #frm_web_search select').prop('disabled', false);
+        $('#frm_web_search input[type="submit"]').val('Click to search');
     });
 }
 
 function handleSearchSuccess(response) {
     if (response.success && response.results.length > 0) {
+        // Save session ID for subsequent API calls
+        if (response.session_id) {
+            currentSessionId = response.session_id;
+            console.log('Session ID saved:', currentSessionId);
+        }
+        
         // Display search results
         displaySearchResults(response.results);
-        showAlert(response.message, 'success');
+        showAlert(response.message, 'success', false);
         
         // Show operation buttons but only enable Get Content
         $('#div_operation').show();
@@ -118,33 +126,33 @@ function handleSearchSuccess(response) {
         $('#btn_tagging, #btn_summary, #btn_qa').addClass('disabled');
         
     } else {
-        showAlert(response.message || '没有找到相关新闻', 'warning');
+        showAlert(response.message || 'No related news found', 'warning');
         hideSearchResults();
     }
 }
 
 function handleSearchError(xhr, status, error) {
-    let errorMessage = '搜索失败，请稍后重试';
+    let errorMessage = 'Search failed, please try again later';
     
     if (xhr.responseJSON && xhr.responseJSON.detail) {
         errorMessage = xhr.responseJSON.detail;
     } else if (status === 'timeout') {
-        errorMessage = '搜索超时，请检查网络连接或稍后重试';
+        errorMessage = 'Search timeout, please check network connection or try again later';
     } else if (xhr.status === 0) {
-        errorMessage = '无法连接到服务器，请检查网络设置或确认服务器正在运行';
+        errorMessage = 'Unable to connect to server, please check network settings or confirm server is running';
     } else if (xhr.status === 500) {
-        errorMessage = '服务器内部错误，可能是API配置问题';
+        errorMessage = 'Server internal error, possibly API configuration issue';
     } else if (xhr.status === 404) {
-        errorMessage = 'API端点不存在，请检查服务器配置';
+        errorMessage = 'API endpoint does not exist, please check server configuration';
     } else if (xhr.status === 422) {
-        errorMessage = '请求参数有误，请检查输入内容';
+        errorMessage = 'Request parameters error, please check input content';
     }
     
     showAlert(`
         <div class="d-flex align-items-center">
             <i class="bi bi-exclamation-triangle-fill me-2"></i>
             <div>
-                <strong>搜索失败</strong><br>
+                <strong>Search Failed</strong><br>
                 <small>${errorMessage}</small>
             </div>
         </div>
@@ -157,16 +165,16 @@ function handleSearchError(xhr, status, error) {
 function displaySearchResults(results) {
     const tableHtml = `
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">搜索结果</h5>
+            <h5 class="mb-0">Search Results</h5>
         </div>
         <div class="table-responsive">
             <table class="table table-striped table-hover" id="news-results-table">
                 <thead class="table-dark">
                     <tr>
-                        <th scope="col" style="width: 5%">序号</th>
-                        <th scope="col" style="width: 40%">新闻标题</th>
-                        <th scope="col" style="width: 20%">来源</th>
-                        <th scope="col" style="width: 10%">全文状态</th>
+                        <th scope="col" style="width: 5%">No.</th>
+                        <th scope="col" style="width: 40%">News Title</th>
+                        <th scope="col" style="width: 20%">Source</th>
+                        <th scope="col" style="width: 10%">Content Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -193,7 +201,7 @@ function displaySearchResults(results) {
             </table>
         </div>
         <div class="mt-3 text-muted">
-            <small>共找到 ${results.length} 条新闻</small>
+            <small>Found ${results.length} news articles</small>
         </div>
     `;
     
@@ -246,7 +254,7 @@ function getDomainFromUrl(url) {
         const domain = new URL(url).hostname;
         return domain.length > 30 ? domain.substring(0, 30) + '...' : domain;
     } catch (e) {
-        return '未知来源';
+        return 'Unknown Source';
     }
 }
 
@@ -258,26 +266,16 @@ window.getNewsContent = getNewsContent;
 function getNewsContent() {
     const newsRows = $('#news-results-table tbody tr');
     if (newsRows.length === 0) {
-        showAlert('没有找到新闻结果', 'warning');
+        showAlert('No news results found', 'warning');
         return;
     }
 
-    // 显示带有spinner的获取内容提示，不自动隐藏
-    showAlert(`
-        <div class="d-flex align-items-center">
-            <div class="spinner-border spinner-border-sm me-2" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            正在获取新闻全文内容，请稍候...
-        </div>
-    `, 'info', false);
-
-    // 设置所有状态为获取中
+    // Set all status to loading
     $('.content-status').each(function() {
-        $(this).html('<i class="bi bi-hourglass-split text-warning" title="获取中"></i>');
+        $(this).html('<i class="bi bi-hourglass-split text-warning" title="Loading"></i>');
     });
     
-    // 获取所有新闻URL并创建映射
+    // Get all news URLs and create mapping
     const urls = [];
     const urlToIndex = {};
     newsRows.each(function() {
@@ -289,7 +287,13 @@ function getNewsContent() {
         }
     });
 
-    // 调用API获取内容
+    // Check if session_id exists
+    if (!currentSessionId) {
+        showAlert('Session ID not found, please search again', 'danger');
+        return;
+    }
+
+    // Call API to get content
     $.ajax({
         url: 'http://127.0.0.1:8280/api/crawler',
         method: 'POST',
@@ -302,105 +306,113 @@ function getNewsContent() {
             contents_save: $('#contents_save').prop('checked'),
             contents_load: $('#contents_load').prop('checked'),
             contents_save_days: parseInt($('#contents_save_days').val()),
-            contents_load_days: parseInt($('#contents_load_days').val())
+            contents_load_days: parseInt($('#contents_load_days').val()),
+            session_id: currentSessionId
         }),
-        timeout: 120000, // 2分钟超时
-        success: function(response) {
-            console.log('AJAX success callback triggered');
-            handleGetContentSuccess(response, urlToIndex);
-        },
-        error: function(xhr, status, error) {
-            console.log('AJAX error callback triggered');
-            handleGetContentError(xhr, status, error);
+        timeout: 120000,
+        beforeSend: function() {
+            console.log('Get content AJAX beforeSend triggered');
+            // Disable get content button to prevent duplicate submission
+            $('#btn_crawler_submit').prop('disabled', true);
+            showAlert(`
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    Getting news full content, please wait...
+                </div>
+            `, 'info', false);
         }
+    }).done(function(response) {
+        console.log('Get content AJAX done triggered');
+        hideAlert();
+        handleGetContentSuccess(response, urlToIndex);
+    }).fail(function(xhr, status, error) {
+        console.log('Get content AJAX fail triggered');
+        hideAlert();
+        handleGetContentError(xhr, status, error);
+    }).always(function() {
+        console.log('Get content AJAX always triggered');
+        // Re-enable get content button
+        $('#btn_crawler_submit').prop('disabled', false);
     });
 }
 
 function handleGetContentSuccess(response, urlToIndex) {
-    console.log('handleGetContentSuccess called');
-    // 先隐藏加载消息
-    hideAlert();
-    console.log('Loading alert hidden');
-    
     if (response.success && response.results) {
         let successCount = 0;
         let failCount = 0;
         
-        // 为每个结果更新状态
+        // Update status for each result
         response.results.forEach(function(result, resultIndex) {
             const index = urlToIndex[result.url];
             
-            // 使用索引来定位状态单元格
+            // Use index to locate status cell
             const statusCell = $(`.content-status[data-index="${index}"]`);
             
             if (statusCell.length > 0) {
                 if (result.success && result.content) {
-                    const successHtml = '<i class="bi bi-check-circle-fill text-success" title="获取成功"></i>';
+                    const successHtml = '<i class="bi bi-check-circle-fill text-success" title="Success"></i>';
                     statusCell.html(successHtml);
                     successCount++;
                 } else {
-                    const errorMsg = result.error || '获取失败';
+                    const errorMsg = result.error || 'Failed';
                     const failHtml = `<i class="bi bi-x-circle-fill text-danger" title="${errorMsg}"></i>`;
                     statusCell.html(failHtml);
                     failCount++;
                 }
             } else {
-                console.error(`未找到索引为 ${index} 的状态单元格`);
+                console.error(`Status cell with index ${index} not found`);
                 failCount++;
             }
         });
         
-        // 显示结果统计
-        showAlert(`内容获取完成：成功 ${successCount} 条，失败 ${failCount} 条`, 'success');
+        // Display result statistics
+        showAlert(`Content retrieval completed: ${successCount} successful, ${failCount} failed`, 'success', false);
         
-        // 只有当至少获取了一个URL的全文后，才启用其他功能按钮
+        // Only enable other function buttons when at least one URL's content is retrieved
         if (successCount > 0) {
             $('#btn_tagging, #btn_summary, #btn_qa').removeClass('disabled');
         } else {
             $('#btn_tagging, #btn_summary, #btn_qa').addClass('disabled');
         }
     } else {
-        showAlert(response.message || '获取内容失败', 'danger');
-        // 所有状态设为失败
-        $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="获取失败"></i>');
-        // 确保其他按钮保持禁用状态
+        showAlert(response.message || 'Content retrieval failed', 'danger');
+        // Set all status to failed
+        $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>');
+        // Ensure other buttons remain disabled
         $('#btn_tagging, #btn_summary, #btn_qa').addClass('disabled');
     }
 }
 
 function handleGetContentError(xhr, status, error) {
-    console.log('handleGetContentError called');
-    // 先隐藏加载消息
-    hideAlert();
-    console.log('Loading alert hidden');
-    
-    let errorMessage = '获取内容失败，请稍后重试';
+    let errorMessage = 'Content retrieval failed, please try again later';
     
     if (xhr.responseJSON && xhr.responseJSON.detail) {
         errorMessage = xhr.responseJSON.detail;
     } else if (status === 'timeout') {
-        errorMessage = '获取内容超时，请检查网络连接或稍后重试';
+        errorMessage = 'Content retrieval timeout, please check network connection or try again later';
     } else if (xhr.status === 0) {
-        errorMessage = '无法连接到服务器，请检查网络设置或确认服务器正在运行';
+        errorMessage = 'Unable to connect to server, please check network settings or confirm server is running';
     } else if (xhr.status === 500) {
-        errorMessage = '服务器内部错误，可能是爬虫配置问题';
+        errorMessage = 'Server internal error, possibly crawler configuration issue';
     } else if (xhr.status === 404) {
-        errorMessage = 'API端点不存在，请检查服务器配置';
+        errorMessage = 'API endpoint does not exist, please check server configuration';
     }
     
     showAlert(`
         <div class="d-flex align-items-center">
             <i class="bi bi-exclamation-triangle-fill me-2"></i>
             <div>
-                <strong>获取内容失败</strong><br>
+                <strong>Content Retrieval Failed</strong><br>
                 <small>${errorMessage}</small>
             </div>
         </div>
     `, 'danger');
     
-    // 所有状态设为失败
-    $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="获取失败"></i>');
-    // 确保其他按钮保持禁用状态
+    // Set all status to failed
+    $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>');
+    // Ensure other buttons remain disabled
     $('#btn_tagging, #btn_summary, #btn_qa').addClass('disabled');
     console.error('Get content error:', { xhr, status, error });
 }
@@ -408,21 +420,17 @@ function handleGetContentError(xhr, status, error) {
 function performTagging() {
     const newsRows = $('#news-results-table tbody tr');
     if (newsRows.length === 0) {
-        showAlert('没有找到新闻结果', 'warning');
+        showAlert('No news results found', 'warning');
         return;
     }
 
-    // 显示带有spinner的标签处理提示，不自动隐藏
-    showAlert(`
-        <div class="d-flex align-items-center">
-            <div class="spinner-border spinner-border-sm me-2" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            正在进行FC标签处理，请稍候...
-        </div>
-    `, 'info', false);
+    // Check if session_id exists
+    if (!currentSessionId) {
+        showAlert('Session ID not found, please search again', 'danger');
+        return;
+    }
 
-    // 获取所有新闻URL并创建映射
+    // Get all news URLs and create mapping
     const urls = [];
     const urlToIndex = {};
     newsRows.each(function() {
@@ -434,7 +442,7 @@ function performTagging() {
         }
     });
 
-    // 调用API进行标签处理
+    // Call API for tagging processing
     const requestData = {
         urls: urls,
         company_name: $('#company_name').val().trim(),
@@ -443,56 +451,67 @@ function performTagging() {
         tags_save: $('#tags_save').prop('checked'),
         tags_load: $('#tags_load').prop('checked'),
         tags_save_days: parseInt($('#tags_save_days').val()),
-        tags_load_days: parseInt($('#tags_load_days').val())
+        tags_load_days: parseInt($('#tags_load_days').val()),
+        session_id: currentSessionId
     };
-    
-    console.log('Tagging request data:', requestData);
     
     $.ajax({
         url: 'http://127.0.0.1:8280/api/tagging',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(requestData),
-        timeout: 180000, // 3分钟超时
-        success: function(response) {
-            console.log('Tagging AJAX success callback triggered');
-            handleTaggingSuccess(response, urlToIndex);
-        },
-        error: function(xhr, status, error) {
-            console.log('Tagging AJAX error callback triggered');
-            handleTaggingError(xhr, status, error);
+        timeout: 180000,
+        beforeSend: function() {
+            console.log('Tagging AJAX beforeSend triggered');
+            // Disable tagging button to prevent duplicate submission
+            $('#btn_tagging_submit').prop('disabled', true);
+            showAlert(`
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    Processing FC tagging, please wait...
+                </div>
+            `, 'info', false);
         }
+    }).done(function(response) {
+        console.log('Tagging AJAX done triggered');
+        hideAlert();
+        handleTaggingSuccess(response, urlToIndex);
+    }).fail(function(xhr, status, error) {
+        console.log('Tagging AJAX fail triggered');
+        hideAlert();
+        handleTaggingError(xhr, status, error);
+    }).always(function() {
+        console.log('Tagging AJAX always triggered');
+        // Re-enable tagging button
+        $('#btn_tagging_submit').prop('disabled', false);
     });
 }
 
 function handleTaggingSuccess(response, urlToIndex) {
-    console.log('handleTaggingSuccess called');
-    // 先隐藏加载消息
-    hideAlert();
-    console.log('Loading alert hidden');
-    
     if (response.success && response.results) {
         let successCount = 0;
         let failCount = 0;
         
-        // 检查表格是否已经有Crime Type和Probability列
+        // Check if table already has Crime Type and Probability columns
         if (!$('#news-results-table thead tr th:contains("Crime Type")').length) {
-            // 添加新的列到表头
+            // Add new columns to table header
             $('#news-results-table thead tr').append('<th scope="col" style="width: 30%">Crime Type</th>');
             $('#news-results-table thead tr').append('<th scope="col" style="width: 10%">Probability</th>');
         }
         
-        // 为每个结果更新标签信息
+        // Update tagging information for each result
         response.results.forEach(function(result, resultIndex) {
             const index = urlToIndex[result.url];
             
-            // 使用索引来定位行
+            // Use index to locate row
             const row = $(`#news-results-table tbody tr[data-index="${index}"]`);
             
             if (row.length > 0) {
-                // 检查行是否已经有Crime Type和Probability列
+                // Check if row already has Crime Type and Probability columns
                 if (row.find('td').length < 6) {
-                    // 添加新的列到行
+                    // Add new columns to row
                     row.append('<td class="crime-type"></td>');
                     row.append('<td class="probability"></td>');
                 }
@@ -507,54 +526,43 @@ function handleTaggingSuccess(response, urlToIndex) {
                     failCount++;
                 }
             } else {
-                console.error(`未找到索引为 ${index} 的行`);
+                console.error(`Row with index ${index} not found`);
                 failCount++;
             }
         });
         
-        // 显示结果统计
-        showAlert(`FC标签处理完成：成功 ${successCount} 条，失败 ${failCount} 条`, 'success');
+        // Display result statistics
+        showAlert(`FC tagging completed: ${successCount} successful, ${failCount} failed`, 'success', false);
         
     } else {
-        showAlert(response.message || 'FC标签处理失败', 'danger');
+        showAlert(response.message || 'FC tagging failed', 'danger');
     }
 }
 
 function handleTaggingError(xhr, status, error) {
-    console.log('handleTaggingError called');
-    console.log('xhr:', xhr);
-    console.log('status:', status);
-    console.log('error:', error);
-    
-    // 先隐藏加载消息
-    hideAlert();
-    console.log('Loading alert hidden');
-    
-    let errorMessage = 'FC标签处理失败，请稍后重试';
+    let errorMessage = 'FC tagging failed, please try again later';
     
     if (xhr.responseJSON && xhr.responseJSON.detail) {
         errorMessage = xhr.responseJSON.detail;
-        console.log('Server error detail:', xhr.responseJSON.detail);
     } else if (xhr.responseText) {
-        console.log('Server response text:', xhr.responseText);
-        errorMessage = `服务器响应: ${xhr.responseText}`;
+        errorMessage = `Server response: ${xhr.responseText}`;
     } else if (status === 'timeout') {
-        errorMessage = 'FC标签处理超时，请检查网络连接或稍后重试';
+        errorMessage = 'FC tagging timeout, please check network connection or try again later';
     } else if (xhr.status === 0) {
-        errorMessage = '无法连接到服务器，请检查网络设置或确认服务器正在运行';
+        errorMessage = 'Unable to connect to server, please check network settings or confirm server is running';
     } else if (xhr.status === 500) {
-        errorMessage = '服务器内部错误，可能是标签处理配置问题';
+        errorMessage = 'Server internal error, possibly tagging configuration issue';
     } else if (xhr.status === 404) {
-        errorMessage = 'API端点不存在，请检查服务器配置';
+        errorMessage = 'API endpoint does not exist, please check server configuration';
     } else if (xhr.status === 422) {
-        errorMessage = '请求参数错误，请检查输入参数';
+        errorMessage = 'Request parameters error, please check input parameters';
     }
     
     showAlert(`
         <div class="d-flex align-items-center">
             <i class="bi bi-exclamation-triangle-fill me-2"></i>
             <div>
-                <strong>FC标签处理失败</strong><br>
+                <strong>FC Tagging Failed</strong><br>
                 <small>${errorMessage}</small>
             </div>
         </div>
@@ -566,24 +574,20 @@ function handleTaggingError(xhr, status, error) {
 function performSummary() {
     const newsRows = $('#news-results-table tbody tr');
     if (newsRows.length === 0) {
-        showAlert('没有找到新闻结果', 'warning');
+        showAlert('No news results found', 'warning');
         return;
     }
 
-    // 先清空摘要结果区域
+    // Check if session_id exists
+    if (!currentSessionId) {
+        showAlert('Session ID not found, please search again', 'danger');
+        return;
+    }
+
+    // Clear summary result area first
     $('#div_summary_res').empty().hide();
 
-    // 显示带有spinner的摘要处理提示，不自动隐藏
-    showAlert(`
-        <div class="d-flex align-items-center">
-            <div class="spinner-border spinner-border-sm me-2" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            正在生成摘要，请稍候...
-        </div>
-    `, 'info', false);
-
-    // 获取所有新闻URL
+    // Get all news URLs
     const urls = [];
     newsRows.each(function() {
         const url = $(this).data('url');
@@ -592,7 +596,7 @@ function performSummary() {
         }
     });
 
-    // 收集表单参数
+    // Collect form parameters
     const requestData = {
         urls: urls,
         company_name: $('#company_name').val().trim(),
@@ -600,79 +604,79 @@ function performSummary() {
         summary_method: $('#summary_method').val(),
         max_words: parseInt($('#summary_max_words').val()),
         cluster_docs: $('#summary_clus_docs').prop('checked'),
-        num_clusters: parseInt($('#summary_num_clus').val())
+        num_clusters: parseInt($('#summary_num_clus').val()),
+        session_id: currentSessionId
     };
     
-    console.log('Summary request data:', requestData);
-    
-    // 调用API进行摘要处理
+    // Call API for summary processing
     $.ajax({
         url: 'http://127.0.0.1:8280/api/summary',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(requestData),
-        timeout: 300000, // 5分钟超时
-        success: function(response) {
-            console.log('Summary AJAX success callback triggered');
-            handleSummarySuccess(response);
-        },
-        error: function(xhr, status, error) {
-            console.log('Summary AJAX error callback triggered');
-            handleSummaryError(xhr, status, error);
+        timeout: 300000,
+        beforeSend: function() {
+            console.log('Summary AJAX beforeSend triggered');
+            // Disable summary button to prevent duplicate submission
+            $('#btn_summary_submit').prop('disabled', true);
+            showAlert(`
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    Generating summary, please wait...
+                </div>
+            `, 'info', false);
         }
+    }).done(function(response) {
+        console.log('Summary AJAX done triggered');
+        hideAlert();
+        handleSummarySuccess(response);
+    }).fail(function(xhr, status, error) {
+        console.log('Summary AJAX fail triggered');
+        hideAlert();
+        handleSummaryError(xhr, status, error);
+    }).always(function() {
+        console.log('Summary AJAX always triggered');
+        // Re-enable summary button
+        $('#btn_summary_submit').prop('disabled', false);
     });
 }
 
 function handleSummarySuccess(response) {
-    console.log('handleSummarySuccess called');
-    // 先隐藏加载消息
-    hideAlert();
-    console.log('Loading alert hidden');
-    
     if (response.success && response.summary) {
-        // 显示摘要结果
+        // Display summary result
         displaySummaryResult(response.summary);
-        showAlert(response.message, 'success');
+        showAlert(response.message || 'Summary generated successfully', 'success', false);
     } else {
-        showAlert(response.message || '摘要生成失败', 'danger');
+        showAlert(response.message || 'Summary generation failed', 'danger');
     }
 }
 
 function handleSummaryError(xhr, status, error) {
-    console.log('handleSummaryError called');
-    console.log('xhr:', xhr);
-    console.log('status:', status);
-    console.log('error:', error);
-    
-    // 先隐藏加载消息
-    hideAlert();
-    console.log('Loading alert hidden');
-    
-    let errorMessage = '摘要生成失败，请稍后重试';
+    let errorMessage = 'Summary generation failed, please try again later';
     
     if (xhr.responseJSON && xhr.responseJSON.message) {
         errorMessage = xhr.responseJSON.message;
-        console.log('Server error message:', xhr.responseJSON.message);
     } else if (xhr.responseText) {
-        console.log('Server response text:', xhr.responseText);
-        errorMessage = `服务器响应: ${xhr.responseText}`;
+        errorMessage = `Server response: ${xhr.responseText}`;
     } else if (status === 'timeout') {
-        errorMessage = '摘要生成超时，请检查网络连接或稍后重试';
+        errorMessage = 'Summary generation timeout, please check network connection or try again later';
     } else if (xhr.status === 0) {
-        errorMessage = '无法连接到服务器，请检查网络设置或确认服务器正在运行';
+        errorMessage = 'Unable to connect to server, please check network settings or confirm server is running';
     } else if (xhr.status === 500) {
-        errorMessage = '服务器内部错误，可能是摘要处理配置问题';
+        errorMessage = 'Server internal error, possibly summary processing configuration issue';
     } else if (xhr.status === 404) {
-        errorMessage = 'API端点不存在，请检查服务器配置';
+        errorMessage = 'API endpoint does not exist, please check server configuration';
     } else if (xhr.status === 422) {
-        errorMessage = '请求参数错误，请检查输入参数';
+        errorMessage = 'Request parameters error, please check input parameters';
     }
     
     showAlert(`
         <div class="d-flex align-items-center">
             <i class="bi bi-exclamation-triangle-fill me-2"></i>
             <div>
-                <strong>摘要生成失败</strong><br>
+                <strong>Summary Generation Failed</strong><br>
                 <small>${errorMessage}</small>
             </div>
         </div>
@@ -682,12 +686,12 @@ function handleSummaryError(xhr, status, error) {
 }
 
 function displaySummaryResult(summary) {
-    // 在div_summary_res中显示摘要结果
+    // Display summary results in div_summary_res
     const summaryHtml = `
         <div class="p-3">
             <h5 class="mb-3">
                 <i class="bi bi-file-text me-2"></i>
-                摘要结果
+                Summary Results
             </h5>
             <div class="border rounded p-3 bg-white">
                 <div class="summary-content" style="white-space: pre-wrap; line-height: 1.6;">
@@ -697,7 +701,7 @@ function displaySummaryResult(summary) {
             <div class="mt-2">
                 <small class="text-muted">
                     <i class="bi bi-info-circle me-1"></i>
-                    摘要生成时间: ${new Date().toLocaleString()}
+                    Summary generated at: ${new Date().toLocaleString()}
                 </small>
             </div>
         </div>
@@ -745,27 +749,23 @@ window.performQA = performQA;
 function performQA() {
     const newsRows = $('#news-results-table tbody tr');
     if (newsRows.length === 0) {
-        showAlert('没有找到新闻结果', 'warning');
+        showAlert('No news results found', 'warning');
+        return;
+    }
+    
+    // Check if session_id exists
+    if (!currentSessionId) {
+        showAlert('Session ID not found, please search again', 'danger');
         return;
     }
     
     const question = $('#ta_qa_query').val().trim();
     if (!question) {
-        showAlert('请输入问题', 'warning');
+        showAlert('Please enter a question', 'warning');
         return;
     }
     
-    // 显示带有spinner的问答处理提示
-    showAlert(`
-        <div class="d-flex align-items-center">
-            <div class="spinner-border spinner-border-sm me-2" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            正在处理问答请求，请稍候...
-        </div>
-    `, 'info', false);
-    
-    // 获取所有新闻URL
+    // Get all news URLs
     const urls = [];
     newsRows.each(function() {
         const url = $(this).data('url');
@@ -774,80 +774,80 @@ function performQA() {
         }
     });
     
-    // 收集请求参数
+    // Collect request parameters
     const requestData = {
         question: question,
         company_name: $('#company_name').val().trim(),
         lang: $('#lang').val(),
-        urls: urls
+        urls: urls,
+        session_id: currentSessionId
     };
     
-    console.log('QA request data:', requestData);
-    
-    // 调用API进行问答处理
+    // Call API for Q&A processing
     $.ajax({
         url: 'http://127.0.0.1:8280/api/qa',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(requestData),
-        timeout: 300000, // 5分钟超时
-        success: function(response) {
-            console.log('QA AJAX success callback triggered');
-            handleQASuccess(response);
-        },
-        error: function(xhr, status, error) {
-            console.log('QA AJAX error callback triggered');
-            handleQAError(xhr, status, error);
+        timeout: 300000,
+        beforeSend: function() {
+            console.log('QA AJAX beforeSend triggered');
+            // Disable QA button to prevent duplicate submission
+            $('#btn_qa_submit').prop('disabled', true);
+            showAlert(`
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    Processing Q&A request, please wait...
+                </div>
+            `, 'info', false);
         }
+    }).done(function(response) {
+        console.log('QA AJAX done triggered');
+        hideAlert();
+        handleQASuccess(response);
+    }).fail(function(xhr, status, error) {
+        console.log('QA AJAX fail triggered');
+        hideAlert();
+        handleQAError(xhr, status, error);
+    }).always(function() {
+        console.log('QA AJAX always triggered');
+        // Re-enable Q&A button
+        $('#btn_qa_submit').prop('disabled', false);
     });
 }
 
 function handleQASuccess(response) {
-    console.log('handleQASuccess called');
-    // 先隐藏加载消息
-    hideAlert();
-    console.log('Loading alert hidden');
-    
     if (response.success && response.answer) {
-        // 显示问答结果
+        // Display Q&A result
         displayQAResult(response.question, response.answer);
-        showAlert(response.message || '问答处理成功', 'success');
+        showAlert(response.message || 'Q&A processing successful', 'success', false);
     } else {
-        showAlert(response.message || '问答处理失败', 'danger');
+        showAlert(response.message || 'Q&A processing failed', 'danger');
     }
 }
 
 function handleQAError(xhr, status, error) {
-    console.log('handleQAError called');
-    console.log('xhr:', xhr);
-    console.log('status:', status);
-    console.log('error:', error);
-    
-    // 先隐藏加载消息
-    hideAlert();
-    console.log('Loading alert hidden');
-    
-    let errorMessage = '问答处理失败，请稍后重试';
+    let errorMessage = 'Q&A processing failed, please try again later';
     
     if (xhr.responseJSON && xhr.responseJSON.message) {
         errorMessage = xhr.responseJSON.message;
-        console.log('Server error message:', xhr.responseJSON.message);
     } else if (xhr.responseText) {
-        console.log('Server response text:', xhr.responseText);
-        errorMessage = `服务器响应: ${xhr.responseText}`;
+        errorMessage = `Server response: ${xhr.responseText}`;
     } else if (status === 'timeout') {
-        errorMessage = '问答处理超时，请检查网络连接或稍后重试';
+        errorMessage = 'Q&A processing timeout, please check network connection or try again later';
     } else if (xhr.status === 0) {
-        errorMessage = '无法连接到服务器，请检查网络设置或确认服务器正在运行';
+        errorMessage = 'Unable to connect to server, please check network settings or confirm server is running';
     } else if (xhr.status === 500) {
-        errorMessage = '服务器内部错误，可能是问答处理配置问题';
+        errorMessage = 'Server internal error, possibly Q&A processing configuration issue';
     } else if (xhr.status === 404) {
-        errorMessage = 'API端点不存在，请检查服务器配置';
+        errorMessage = 'API endpoint does not exist, please check server configuration';
     }
     
     showAlert(`
         <div class="alert-content">
-            <div class="fw-bold">问答处理失败</div>
+            <div class="fw-bold">Q&A Processing Failed</div>
             <div class="mt-2">
                 <small>${errorMessage}</small>
             </div>
@@ -858,7 +858,7 @@ function handleQAError(xhr, status, error) {
 }
 
 function displayQAResult(question, answer) {
-    // 在div_qa_res中追加显示问答结果
+    // Append and display Q&A results in div_qa_res
     const qaHtml = `
         <div class="qa-item mb-3 p-3 border rounded">
             <div class="question mb-2">
@@ -878,27 +878,26 @@ function displayQAResult(question, answer) {
         </div>
     `;
     
-    // 显示区域并追加内容
+    // Display area and append content
     const qaDiv = $('#div_qa_res');
     if (qaDiv.is(':hidden')) {
         qaDiv.show();
         qaDiv.html(`
             <div class="p-3">
-                <h5 class="mb-3">
-                    <i class="bi bi-question-circle me-2"></i>
-                    问答结果
-                </h5>
-                <div class="qa-content">
-                    ${qaHtml}
-                </div>
+                <h5 class="mb-3">                <i class="bi bi-question-circle me-2"></i>
+                Q&A Results
+            </h5>
+            <div class="qa-content">
+                ${qaHtml}
+            </div>
             </div>
         `);
     } else {
-        // 追加到现有内容
+        // Append to existing content
         qaDiv.find('.qa-content').append(qaHtml);
     }
     
-    // 滚动到新添加的内容
+    // Scroll to newly added content
     qaDiv.find('.qa-item').last()[0].scrollIntoView({ 
         behavior: 'smooth', 
         block: 'nearest' 
