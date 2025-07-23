@@ -331,20 +331,24 @@ if __name__ == "__main__":
 
         fctagging = FCTagging(llm, emb)
 
-        print("tagging a single chunk...")
+        # Debug output - uncomment for testing
+        # print("tagging a single chunk...")
         tag = asyncio.run(fctagging._tag_single(all_chunks[0]))
-        print(tag)
+        # print(tag)
 
-        print("\ntagging all chunks...")
+        # print("\ntagging all chunks...")
         tags = asyncio.run(fctagging._tag_batch(all_chunks))
-        print(tags)
+        # print(tags)
 
-        print("\ntagging all chunks and combine the result...")
+        # print("\ntagging all chunks and combine the result...")
         tags = asyncio.run(fctagging.tagging_combine(all_chunks))
-        print(tags)
+        # print(tags)
 
-        print("\ntagging with RAG...")
+        # print("\ntagging with RAG...")
         tags = asyncio.run(fctagging.tagging_rag(all_chunks))
-        print(tags)
+        # print(tags)
+        
+        # Results available for testing
+        _ = tag, tags
 
     main()

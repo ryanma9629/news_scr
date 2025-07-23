@@ -706,24 +706,28 @@ if __name__ == "__main__":
             )
         )
 
-        print("Summarization with map-reduce (no clustering)")
+        # Debug output - uncomment for testing
+        # print("Summarization with map-reduce (no clustering)")
         mrsumm = MapReduceSummarization(llm, embeddings)
         summary = asyncio.run(mrsumm.summarize(doc, "Chinese", num_cluster=0))
-        print(summary)
+        # print(summary)
 
-        print("\nSummarization with map-reduce (with clustering)")
+        # print("\nSummarization with map-reduce (with clustering)")
         summary_clustered = asyncio.run(mrsumm.summarize(doc, "Chinese", num_cluster=2))
-        print(summary_clustered)
+        # print(summary_clustered)
 
-        print("\nSummarization with iterative refinement (no clustering)")
+        # print("\nSummarization with iterative refinement (no clustering)")
         refsumm = RefinementSummarization(llm, embeddings)
-        summary = asyncio.run(refsumm.summarize(doc, "Chinese", num_cluster=0))
-        print(summary)
+        summary_ref = asyncio.run(refsumm.summarize(doc, "Chinese", num_cluster=0))
+        # print(summary_ref)
 
-        print("\nSummarization with iterative refinement (with clustering)")
-        summary_clustered = asyncio.run(
+        # print("\nSummarization with iterative refinement (with clustering)")
+        summary_ref_clustered = asyncio.run(
             refsumm.summarize(doc, "Chinese", num_cluster=2)
         )
-        print(summary_clustered)
+        # print(summary_ref_clustered)
+        
+        # Results available for testing
+        _ = summary, summary_clustered, summary_ref, summary_ref_clustered
 
     main()

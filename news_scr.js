@@ -234,7 +234,6 @@ function showAlert(message, type, autoHide = true) {
 }
 
 function hideAlert() {
-    console.log('hideAlert called');
     $('#div_ajax_info').hide();
 }
 
@@ -311,7 +310,6 @@ function getNewsContent() {
         }),
         timeout: 120000,
         beforeSend: function() {
-            console.log('Get content AJAX beforeSend triggered');
             // Disable get content button to prevent duplicate submission
             $('#btn_crawler_submit').prop('disabled', true);
             showAlert(`
@@ -324,15 +322,12 @@ function getNewsContent() {
             `, 'info', false);
         }
     }).done(function(response) {
-        console.log('Get content AJAX done triggered');
         hideAlert();
         handleGetContentSuccess(response, urlToIndex);
     }).fail(function(xhr, status, error) {
-        console.log('Get content AJAX fail triggered');
         hideAlert();
         handleGetContentError(xhr, status, error);
     }).always(function() {
-        console.log('Get content AJAX always triggered');
         // Re-enable get content button
         $('#btn_crawler_submit').prop('disabled', false);
     });
@@ -362,7 +357,6 @@ function handleGetContentSuccess(response, urlToIndex) {
                     failCount++;
                 }
             } else {
-                console.error(`Status cell with index ${index} not found`);
                 failCount++;
             }
         });
@@ -462,7 +456,6 @@ function performTagging() {
         data: JSON.stringify(requestData),
         timeout: 180000,
         beforeSend: function() {
-            console.log('Tagging AJAX beforeSend triggered');
             // Disable tagging button to prevent duplicate submission
             $('#btn_tagging_submit').prop('disabled', true);
             showAlert(`
@@ -475,15 +468,12 @@ function performTagging() {
             `, 'info', false);
         }
     }).done(function(response) {
-        console.log('Tagging AJAX done triggered');
         hideAlert();
         handleTaggingSuccess(response, urlToIndex);
     }).fail(function(xhr, status, error) {
-        console.log('Tagging AJAX fail triggered');
         hideAlert();
         handleTaggingError(xhr, status, error);
     }).always(function() {
-        console.log('Tagging AJAX always triggered');
         // Re-enable tagging button
         $('#btn_tagging_submit').prop('disabled', false);
     });
@@ -526,7 +516,6 @@ function handleTaggingSuccess(response, urlToIndex) {
                     failCount++;
                 }
             } else {
-                console.error(`Row with index ${index} not found`);
                 failCount++;
             }
         });
@@ -616,7 +605,6 @@ function performSummary() {
         data: JSON.stringify(requestData),
         timeout: 300000,
         beforeSend: function() {
-            console.log('Summary AJAX beforeSend triggered');
             // Disable summary button to prevent duplicate submission
             $('#btn_summary_submit').prop('disabled', true);
             showAlert(`
@@ -629,15 +617,12 @@ function performSummary() {
             `, 'info', false);
         }
     }).done(function(response) {
-        console.log('Summary AJAX done triggered');
         hideAlert();
         handleSummarySuccess(response);
     }).fail(function(xhr, status, error) {
-        console.log('Summary AJAX fail triggered');
         hideAlert();
         handleSummaryError(xhr, status, error);
     }).always(function() {
-        console.log('Summary AJAX always triggered');
         // Re-enable summary button
         $('#btn_summary_submit').prop('disabled', false);
     });
@@ -791,7 +776,6 @@ function performQA() {
         data: JSON.stringify(requestData),
         timeout: 300000,
         beforeSend: function() {
-            console.log('QA AJAX beforeSend triggered');
             // Disable QA button to prevent duplicate submission
             $('#btn_qa_submit').prop('disabled', true);
             showAlert(`
@@ -804,15 +788,12 @@ function performQA() {
             `, 'info', false);
         }
     }).done(function(response) {
-        console.log('QA AJAX done triggered');
         hideAlert();
         handleQASuccess(response);
     }).fail(function(xhr, status, error) {
-        console.log('QA AJAX fail triggered');
         hideAlert();
         handleQAError(xhr, status, error);
     }).always(function() {
-        console.log('QA AJAX always triggered');
         // Re-enable Q&A button
         $('#btn_qa_submit').prop('disabled', false);
     });

@@ -339,6 +339,10 @@ if __name__ == "__main__":
         response = asyncio.run(
             qa.query("Why Theranos closed in 2018?", lang="Chinese", docs=all_chunks)
         )
-        print(response["answer"])
+        # Debug output - uncomment for testing
+        # print(response["answer"])
+        
+        # Result available for testing
+        _ = response
 
     main()

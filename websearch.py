@@ -274,12 +274,17 @@ if __name__ == "__main__":
     def main():
         """Main function for testing search functionality."""
         google_search = GoogleSerperNews(lang="English", location="United States")
-        result = google_search.search("Theranos")
-        print("Google search result:", result)
+        google_result = google_search.search("Theranos")
+        # Debug output - uncomment for testing
+        # print("Google search result:", google_result)
 
         bing_search = BingSearch(lang="English", location="United States")
-        result = bing_search.search("Theranos")
-        print("Bing search result:", result)
+        bing_result = bing_search.search("Theranos")
+        # Debug output - uncomment for testing
+        # print("Bing search result:", bing_result)
+        
+        # Results available for testing
+        _ = google_result, bing_result
     
     main()
     

@@ -127,6 +127,8 @@ if __name__ == "__main__":
             ]
         )
         for doc in docs:
-            print(doc.page_content, doc.metadata.get("source", ""))
+            # Debug output - uncomment for testing
+            # print(doc.page_content, doc.metadata.get("source", ""))
+            pass
 
     asyncio.run(main())

@@ -373,7 +373,7 @@ async def crawl_news_content(request: CrawlerRequest):
                 message="Session ID is required",
             )
 
-        logger.info(f"Starting to crawl {len(request.urls)} URLs for session: {session_id}")
+        logger.info(f"Starting to crawl {len(request.urls)} URLs")
 
         if not request.urls:
             return CrawlerResponse(
@@ -414,13 +414,9 @@ async def crawl_news_content(request: CrawlerRequest):
                             error=None,
                         )
                     )
-                    logger.info(f"Loaded from MongoDB: {content['url']}")
 
                 # Only crawl URLs that are not in storage
                 urls_to_crawl = [url for url in request.urls if url not in stored_urls]
-                logger.info(
-                    f"Found {len(contents_from_db)} URLs in MongoDB, {len(urls_to_crawl)} URLs to crawl"
-                )
 
             except Exception as e:
                 logger.error(f"Error loading from MongoDB: {str(e)}")
@@ -432,7 +428,6 @@ async def crawl_news_content(request: CrawlerRequest):
 
         # Step 2: Crawl remaining URLs
         if urls_to_crawl:
-            logger.info(f"Crawling {len(urls_to_crawl)} URLs")
 
             # Initialize crawler
             crawler = ApifyCrawler()
@@ -440,7 +435,6 @@ async def crawl_news_content(request: CrawlerRequest):
             try:
                 # Get documents from URLs
                 documents = await crawler.get(urls_to_crawl)
-                logger.info(f"Successfully crawled {len(documents)} documents")
 
                 # Create a mapping of URL to document
                 url_to_doc = {}
@@ -468,7 +462,6 @@ async def crawl_news_content(request: CrawlerRequest):
                             crawled_contents.append(
                                 {"url": url, "text": doc.page_content}
                             )
-                            logger.info(f"Successfully processed URL: {url}")
                         else:
                             results.append(
                                 CrawlerResultResponse(
@@ -493,13 +486,9 @@ async def crawl_news_content(request: CrawlerRequest):
                 # Step 3: Save crawled contents to MongoDB if enabled
                 if request.contents_save and crawled_contents:
                     try:
-                        logger.info(
-                            f"Saving {len(crawled_contents)} contents to MongoDB (only update if older than {request.contents_save_days} days)..."
-                        )
                         mongo_store.save_contents(
                             crawled_contents, days=request.contents_save_days
                         )
-                        logger.info("Successfully saved contents to MongoDB")
                     except Exception as e:
                         logger.error(f"Error saving to MongoDB: {str(e)}")
                         # Don't fail the entire request if storage fails
@@ -528,7 +517,6 @@ async def crawl_news_content(request: CrawlerRequest):
 
         # Store merged contents in session
         update_session_data(session_id, "web_contents", all_contents)
-        logger.info(f"Stored {len(all_contents)} contents in session {session_id}")
 
         success_count = sum(1 for r in results if r.success)
 
@@ -575,7 +563,7 @@ async def tag_news_content(request: TaggingRequest):
                 message="Session ID is required",
             )
 
-        logger.info(f"Starting FC Tagging for {len(request.urls)} URLs, session: {session_id}")
+        logger.info(f"Starting FC Tagging for {len(request.urls)} URLs")
 
         if not request.urls:
             return TaggingResponse(
@@ -596,9 +584,6 @@ async def tag_news_content(request: TaggingRequest):
         # Step 1: If tags_load is enabled, try to load from MongoDB first
         if request.tags_load:
             try:
-                logger.info(
-                    f"Loading tags from MongoDB (within {request.tags_load_days} days)..."
-                )
                 tags_from_db = mongo_store.load_tags(
                     request.urls, 
                     method=request.tagging_method,
@@ -620,13 +605,9 @@ async def tag_news_content(request: TaggingRequest):
                             error=None,
                         )
                     )
-                    logger.info(f"Loaded tags from MongoDB: {tag['url']}")
 
                 # Only tag URLs that are not in storage
                 urls_to_tag = [url for url in request.urls if url not in stored_urls]
-                logger.info(
-                    f"Found {len(tags_from_db)} URLs in MongoDB, {len(urls_to_tag)} URLs to tag"
-                )
 
             except Exception as e:
                 logger.error(f"Error loading tags from MongoDB: {str(e)}")
@@ -638,7 +619,6 @@ async def tag_news_content(request: TaggingRequest):
 
         # Step 2: Tag remaining URLs
         if urls_to_tag:
-            logger.info(f"Tagging {len(urls_to_tag)} URLs")
 
             try:
                 # Get contents from session first
@@ -657,7 +637,6 @@ async def tag_news_content(request: TaggingRequest):
                 
                 # If some URLs don't have content in session, try MongoDB as fallback
                 if urls_without_content:
-                    logger.info(f"Trying to load {len(urls_without_content)} URLs from MongoDB as fallback")
                     fallback_contents = mongo_store.load_contents(urls_without_content, days=0)
                     contents_to_tag.extend(fallback_contents)
                     
@@ -729,7 +708,6 @@ async def tag_news_content(request: TaggingRequest):
                                 "probability": tag_result.get("probability"),
                                 "method": request.tagging_method
                             })
-                            logger.info(f"Successfully tagged URL: {url}")
                             
 
                         except Exception as tag_error:
@@ -761,16 +739,12 @@ async def tag_news_content(request: TaggingRequest):
                     # Step 3: Save tagged results to storage if enabled
                     if request.tags_save and tagged_results:
                         try:
-                            logger.info(
-                                f"Saving {len(tagged_results)} tags to storage (only update if older than {request.tags_save_days} days)..."
-                            )
                             mongo_store.save_tags(
                                 tagged_results, 
                                 method=request.tagging_method,
                                 llm_name="gpt-4o",
                                 days=request.tags_save_days
                             )
-                            logger.info("Successfully saved tags to storage")
                         except Exception as e:
                             logger.error(f"Error saving tags to storage: {str(e)}")
                             # Don't fail the entire request if storage fails
@@ -833,7 +807,7 @@ async def summarize_news_content(request: SummaryRequest):
                 message="Session ID is required",
             )
 
-        logger.info(f"Starting summarization for {len(request.urls)} URLs, session: {session_id}")
+        logger.info(f"Starting summarization for {len(request.urls)} URLs")
 
         if not request.urls:
             return SummaryResponse(
@@ -864,8 +838,6 @@ async def summarize_news_content(request: SummaryRequest):
                 summary=None,
                 message="Content not found for summarization, please get content first",
             )
-            
-        logger.info(f"Found {len(contents_to_summarize)} contents to summarize")
 
         try:
             # Initialize LLM and embeddings
@@ -902,8 +874,6 @@ async def summarize_news_content(request: SummaryRequest):
                     max_words=request.max_words,
                     num_cluster=num_clusters
                 )
-            
-            logger.info("Summarization completed successfully")
             
             return SummaryResponse(
                 success=True,
@@ -948,8 +918,6 @@ async def qa_endpoint(request: QARequest):
                 message="Session ID is required"
             )
 
-        logger.info(f"Processing QA request for company: {request.company_name}, session: {session_id}")
-        
         # Initialize LLM and embeddings
         llm = AzureChatOpenAI(
             azure_deployment="gpt-4o-mini",
