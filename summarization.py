@@ -726,7 +726,7 @@ if __name__ == "__main__":
             refsumm.summarize(doc, "Chinese", num_cluster=2)
         )
         # print(summary_ref_clustered)
-        
+
         # Results available for testing
         _ = summary, summary_clustered, summary_ref, summary_ref_clustered
 

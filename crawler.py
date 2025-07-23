@@ -1,9 +1,10 @@
+import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional
-import logging
+
 from dotenv import load_dotenv
-from langchain_core.documents import Document
 from langchain_apify import ApifyWrapper
+from langchain_core.documents import Document
 
 load_dotenv()
 

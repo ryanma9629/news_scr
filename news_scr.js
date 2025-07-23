@@ -5,24 +5,24 @@
 const AppState = {
     sessionId: null,
     newsResults: [],
-    
+
     setSessionId(id) {
         this.sessionId = id;
         console.log('Session ID saved:', id);
     },
-    
+
     setNewsResults(results) {
         this.newsResults = results;
     },
-    
+
     getUrls() {
         return this.newsResults.map(result => result.url);
     },
-    
+
     hasSession() {
         return !!this.sessionId;
     },
-    
+
     hasResults() {
         return this.newsResults.length > 0;
     }
@@ -33,17 +33,17 @@ const UIState = {
     enableButtons(selector) {
         $(selector).removeClass('disabled');
     },
-    
+
     disableButtons(selector) {
         $(selector).addClass('disabled');
     },
-    
+
     toggleFormInputs(disabled) {
         $('#frm_web_search input, #frm_web_search select').prop('disabled', disabled);
         const submitBtn = $('#frm_web_search input[type="submit"]');
         submitBtn.val(disabled ? 'Searching...' : 'Click to search');
     },
-    
+
     toggleSubmitButton(selector, disabled, loadingText, normalText) {
         $(selector).prop('disabled', disabled);
         if (loadingText && normalText) {
@@ -61,17 +61,17 @@ const AjaxHelper = {
             xhrFields: { withCredentials: true },
             timeout: 30000
         };
-        
+
         return $.ajax({
             ...defaultOptions,
             ...options,
             data: typeof options.data === 'object' ? JSON.stringify(options.data) : options.data
         });
     },
-    
+
     handleError(xhr, status, context = '') {
         let message = `${context} failed, please try again later`;
-        
+
         if (xhr.responseJSON?.detail || xhr.responseJSON?.message) {
             message = xhr.responseJSON.detail || xhr.responseJSON.message;
         } else if (xhr.responseText) {
@@ -86,7 +86,7 @@ const AjaxHelper = {
             };
             message = errorMap[status] || errorMap[xhr.status] || message;
         }
-        
+
         return message;
     }
 };
@@ -100,18 +100,18 @@ const AlertManager = {
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         `;
-        
+
         $('#div_ajax_info').html(alertHtml).show();
-        
+
         if (autoHide && (type === 'success' || type === 'info')) {
             setTimeout(() => $('#div_ajax_info').fadeOut(), 5000);
         }
     },
-    
+
     hide() {
         $('#div_ajax_info').hide();
     },
-    
+
     showLoading(message) {
         this.show(`
             <div class="d-flex align-items-center">
@@ -122,7 +122,7 @@ const AlertManager = {
             </div>
         `, 'info', false);
     },
-    
+
     showError(title, message) {
         this.show(`
             <div class="d-flex align-items-center">
@@ -140,12 +140,12 @@ const AlertManager = {
 const Utils = {
     escapeHtml(text) {
         const map = {
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', 
+            '&': '&amp;', '<': '&lt;', '>': '&gt;',
             '"': '&quot;', "'": '&#039;'
         };
         return text.replace(/[&<>"']/g, m => map[m]);
     },
-    
+
     getDomainFromUrl(url) {
         try {
             const domain = new URL(url).hostname;
@@ -154,7 +154,7 @@ const Utils = {
             return 'Unknown Source';
         }
     },
-    
+
     getFormData() {
         const formData = {
             company_name: $('#company_name').val().trim(),
@@ -164,16 +164,16 @@ const Utils = {
             num_results: parseInt($('#num_results').val()),
             llm_model: $('#llm_model').val()
         };
-        
+
         // Validate LLM model
         const supportedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'];
         if (!supportedModels.includes(formData.llm_model)) {
             throw new Error(`LLM model "${formData.llm_model}" is currently unsupported. Please select one of: ${supportedModels.join(', ')}`);
         }
-        
+
         return formData;
     },
-    
+
     validateSession() {
         if (!AppState.hasSession()) {
             AlertManager.show('Session ID not found, please search again', 'danger');
@@ -181,7 +181,7 @@ const Utils = {
         }
         return true;
     },
-    
+
     validateResults() {
         if (!AppState.hasResults()) {
             AlertManager.show('No news results found', 'warning');
@@ -207,7 +207,7 @@ function initializeApp() {
         ['#btn_qa', 'click', setDefaultQAQuery],
         ['#llm_model', 'change', handleLLMModelChange]
     ];
-    
+
     eventBindings.forEach(([selector, event, handler]) => {
         $(selector).on(event, handler);
     });
@@ -217,7 +217,7 @@ function initializeApp() {
 function handleLLMModelChange() {
     const selectedModel = $('#llm_model').val();
     const supportedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'];
-    
+
     if (!supportedModels.includes(selectedModel)) {
         AlertManager.show(
             `LLM model "${selectedModel}" is currently not supported. Please select one of: ${supportedModels.join(', ')}`,
@@ -232,16 +232,16 @@ function handleLLMModelChange() {
 function performSearch() {
     try {
         const formData = Utils.getFormData();
-        
+
         if (!formData.company_name) {
             AlertManager.show('Please enter company name', 'danger');
             return;
         }
-        
+
         hideSearchResults();
         clearPreviousResults();
         UIState.toggleFormInputs(true);
-        
+
         AjaxHelper.makeRequest({
             url: '/api/search',
             data: formData,
@@ -249,17 +249,17 @@ function performSearch() {
                 `Searching for "${formData.company_name}" related news using ${formData.search_engine}, please wait...`
             )
         })
-        .done(handleSearchSuccess)
-        .fail((xhr, status, error) => {
-            AlertManager.hide();
-            const message = AjaxHelper.handleError(xhr, status, 'Search');
-            AlertManager.showError('Search Failed', message);
-            hideSearchResults();
-            console.error('Search error:', { xhr, status, error });
-        })
-        .always(() => {
-            UIState.toggleFormInputs(false);
-        });
+            .done(handleSearchSuccess)
+            .fail((xhr, status, error) => {
+                AlertManager.hide();
+                const message = AjaxHelper.handleError(xhr, status, 'Search');
+                AlertManager.showError('Search Failed', message);
+                hideSearchResults();
+                console.error('Search error:', { xhr, status, error });
+            })
+            .always(() => {
+                UIState.toggleFormInputs(false);
+            });
     } catch (error) {
         AlertManager.show(error.message, 'danger');
         UIState.toggleFormInputs(false);
@@ -268,14 +268,14 @@ function performSearch() {
 
 function handleSearchSuccess(response) {
     AlertManager.hide();
-    
+
     if (response.success && response.results?.length > 0) {
         AppState.setSessionId(response.session_id);
         AppState.setNewsResults(response.results);
-        
+
         displaySearchResults(response.results);
         AlertManager.show(response.message, 'success', false);
-        
+
         // Show operations and enable Get Content only
         $('#div_operation').show();
         UIState.enableButtons('#btn_crawler');
@@ -328,7 +328,7 @@ function displaySearchResults(results) {
             <small>Found ${results.length} news articles</small>
         </div>
     `;
-    
+
     $('#div_search_res').html(tableHtml).show();
 }
 
@@ -341,7 +341,7 @@ function hideSearchResults() {
 function clearPreviousResults() {
     // Clear summary results
     $('#div_summary_res').empty().hide();
-    
+
     // Clear Q&A results  
     $('#div_qa_res').empty().hide();
 }
@@ -349,10 +349,10 @@ function clearPreviousResults() {
 // Content crawling functionality
 function getNewsContent() {
     if (!Utils.validateResults() || !Utils.validateSession()) return;
-    
+
     // Set loading status for all content cells
     $('.content-status').html('<i class="bi bi-hourglass-split text-warning" title="Loading"></i>');
-    
+
     const requestData = {
         urls: AppState.getUrls(),
         crawler_type: 'apify',
@@ -364,7 +364,7 @@ function getNewsContent() {
         contents_load_days: parseInt($('#contents_load_days').val()),
         session_id: AppState.sessionId
     };
-    
+
     AjaxHelper.makeRequest({
         url: '/api/crawler',
         data: requestData,
@@ -374,38 +374,38 @@ function getNewsContent() {
             AlertManager.showLoading('Getting news full content, please wait...');
         }
     })
-    .done((response) => {
-        AlertManager.hide();
-        handleContentSuccess(response);
-    })
-    .fail((xhr, status, error) => {
-        AlertManager.hide();
-        const message = AjaxHelper.handleError(xhr, status, 'Content retrieval');
-        AlertManager.showError('Content Retrieval Failed', message);
-        $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>');
-        UIState.disableButtons('#btn_tagging, #btn_summary, #btn_qa');
-        console.error('Get content error:', { xhr, status, error });
-    })
-    .always(() => {
-        UIState.toggleSubmitButton('#btn_crawler_submit', false);
-    });
+        .done((response) => {
+            AlertManager.hide();
+            handleContentSuccess(response);
+        })
+        .fail((xhr, status, error) => {
+            AlertManager.hide();
+            const message = AjaxHelper.handleError(xhr, status, 'Content retrieval');
+            AlertManager.showError('Content Retrieval Failed', message);
+            $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>');
+            UIState.disableButtons('#btn_tagging, #btn_summary, #btn_qa');
+            console.error('Get content error:', { xhr, status, error });
+        })
+        .always(() => {
+            UIState.toggleSubmitButton('#btn_crawler_submit', false);
+        });
 }
 
 function handleContentSuccess(response) {
     if (response.success && response.results) {
         let successCount = 0;
         let failCount = 0;
-        
+
         // Create URL to index mapping for efficiency
         const urlToIndex = {};
         AppState.newsResults.forEach((result, index) => {
             urlToIndex[result.url] = index;
         });
-        
+
         response.results.forEach(result => {
             const index = urlToIndex[result.url];
             const statusCell = $(`.content-status[data-index="${index}"]`);
-            
+
             if (statusCell.length > 0) {
                 if (result.success && result.content) {
                     statusCell.html('<i class="bi bi-check-circle-fill text-success" title="Success"></i>');
@@ -420,9 +420,9 @@ function handleContentSuccess(response) {
                 failCount++;
             }
         });
-        
+
         AlertManager.show(`Content retrieval completed: ${successCount} successful, ${failCount} failed`, 'success', false);
-        
+
         // Enable other operations only if content was retrieved successfully
         if (successCount > 0) {
             UIState.enableButtons('#btn_tagging, #btn_summary, #btn_qa');
@@ -439,7 +439,7 @@ function handleContentSuccess(response) {
 // Tagging functionality
 function performTagging() {
     if (!Utils.validateResults() || !Utils.validateSession()) return;
-    
+
     const requestData = {
         urls: AppState.getUrls(),
         company_name: $('#company_name').val().trim(),
@@ -452,7 +452,7 @@ function performTagging() {
         tags_load_days: parseInt($('#tags_load_days').val()),
         session_id: AppState.sessionId
     };
-    
+
     AjaxHelper.makeRequest({
         url: '/api/tagging',
         data: requestData,
@@ -462,49 +462,49 @@ function performTagging() {
             AlertManager.showLoading('Processing FC tagging, please wait...');
         }
     })
-    .done(handleTaggingSuccess)
-    .fail((xhr, status, error) => {
-        AlertManager.hide();
-        const message = AjaxHelper.handleError(xhr, status, 'FC tagging');
-        AlertManager.showError('FC Tagging Failed', message);
-        console.error('Tagging error:', { xhr, status, error });
-    })
-    .always(() => {
-        UIState.toggleSubmitButton('#btn_tagging_submit', false);
-    });
+        .done(handleTaggingSuccess)
+        .fail((xhr, status, error) => {
+            AlertManager.hide();
+            const message = AjaxHelper.handleError(xhr, status, 'FC tagging');
+            AlertManager.showError('FC Tagging Failed', message);
+            console.error('Tagging error:', { xhr, status, error });
+        })
+        .always(() => {
+            UIState.toggleSubmitButton('#btn_tagging_submit', false);
+        });
 }
 
 function handleTaggingSuccess(response) {
     AlertManager.hide();
-    
+
     if (response.success && response.results) {
         let successCount = 0;
         let failCount = 0;
-        
+
         // Add table columns if they don't exist
         const tableHeader = $('#news-results-table thead tr');
         if (!tableHeader.find('th:contains("Crime Type")').length) {
             tableHeader.append('<th scope="col" style="width: 30%">Crime Type</th>');
             tableHeader.append('<th scope="col" style="width: 10%">Probability</th>');
         }
-        
+
         // Create URL to index mapping for efficiency
         const urlToIndex = {};
         AppState.newsResults.forEach((result, index) => {
             urlToIndex[result.url] = index;
         });
-        
+
         response.results.forEach(result => {
             const index = urlToIndex[result.url];
             const row = $(`#news-results-table tbody tr[data-index="${index}"]`);
-            
+
             if (row.length > 0) {
                 // Add new columns to row if they don't exist
                 if (row.find('td').length < 6) {
                     row.append('<td class="crime-type"></td>');
                     row.append('<td class="probability"></td>');
                 }
-                
+
                 if (result.success && result.crime_type && result.probability) {
                     row.find('.crime-type').text(result.crime_type);
                     row.find('.probability').text(result.probability);
@@ -519,7 +519,7 @@ function handleTaggingSuccess(response) {
                 failCount++;
             }
         });
-        
+
         AlertManager.show(`FC tagging completed: ${successCount} successful, ${failCount} failed`, 'success', false);
     } else {
         AlertManager.show(response.message || 'FC tagging failed', 'danger');
@@ -529,10 +529,10 @@ function handleTaggingSuccess(response) {
 // Summary functionality
 function performSummary() {
     if (!Utils.validateResults() || !Utils.validateSession()) return;
-    
+
     // Clear previous summary results
     $('#div_summary_res').empty().hide();
-    
+
     const requestData = {
         urls: AppState.getUrls(),
         company_name: $('#company_name').val().trim(),
@@ -544,7 +544,7 @@ function performSummary() {
         num_clusters: parseInt($('#summary_num_clus').val()),
         session_id: AppState.sessionId
     };
-    
+
     AjaxHelper.makeRequest({
         url: '/api/summary',
         data: requestData,
@@ -554,21 +554,21 @@ function performSummary() {
             AlertManager.showLoading('Generating summary, please wait...');
         }
     })
-    .done(handleSummarySuccess)
-    .fail((xhr, status, error) => {
-        AlertManager.hide();
-        const message = AjaxHelper.handleError(xhr, status, 'Summary generation');
-        AlertManager.showError('Summary Generation Failed', message);
-        console.error('Summary error:', { xhr, status, error });
-    })
-    .always(() => {
-        UIState.toggleSubmitButton('#btn_summary_submit', false);
-    });
+        .done(handleSummarySuccess)
+        .fail((xhr, status, error) => {
+            AlertManager.hide();
+            const message = AjaxHelper.handleError(xhr, status, 'Summary generation');
+            AlertManager.showError('Summary Generation Failed', message);
+            console.error('Summary error:', { xhr, status, error });
+        })
+        .always(() => {
+            UIState.toggleSubmitButton('#btn_summary_submit', false);
+        });
 }
 
 function handleSummarySuccess(response) {
     AlertManager.hide();
-    
+
     if (response.success && response.summary) {
         displaySummaryResult(response.summary);
         AlertManager.show(response.message || 'Summary generated successfully', 'success', false);
@@ -597,20 +597,20 @@ function displaySummaryResult(summary) {
             </div>
         </div>
     `;
-    
+
     $('#div_summary_res').html(summaryHtml).show();
 }
 
 // QA functionality
 function performQA() {
     if (!Utils.validateResults() || !Utils.validateSession()) return;
-    
+
     const question = $('#ta_qa_query').val().trim();
     if (!question) {
         AlertManager.show('Please enter a question', 'warning');
         return;
     }
-    
+
     const requestData = {
         question: question,
         company_name: $('#company_name').val().trim(),
@@ -619,7 +619,7 @@ function performQA() {
         llm_model: $('#llm_model').val(),
         session_id: AppState.sessionId
     };
-    
+
     AjaxHelper.makeRequest({
         url: '/api/qa',
         data: requestData,
@@ -629,21 +629,21 @@ function performQA() {
             AlertManager.showLoading('Processing Q&A request, please wait...');
         }
     })
-    .done(handleQASuccess)
-    .fail((xhr, status, error) => {
-        AlertManager.hide();
-        const message = AjaxHelper.handleError(xhr, status, 'Q&A processing');
-        AlertManager.showError('Q&A Processing Failed', message);
-        console.error('QA error:', { xhr, status, error });
-    })
-    .always(() => {
-        UIState.toggleSubmitButton('#btn_qa_submit', false);
-    });
+        .done(handleQASuccess)
+        .fail((xhr, status, error) => {
+            AlertManager.hide();
+            const message = AjaxHelper.handleError(xhr, status, 'Q&A processing');
+            AlertManager.showError('Q&A Processing Failed', message);
+            console.error('QA error:', { xhr, status, error });
+        })
+        .always(() => {
+            UIState.toggleSubmitButton('#btn_qa_submit', false);
+        });
 }
 
 function handleQASuccess(response) {
     AlertManager.hide();
-    
+
     if (response.success && response.answer) {
         displayQAResult(response.question, response.answer);
         AlertManager.show(response.message || 'Q&A processing successful', 'success', false);
@@ -671,7 +671,7 @@ function displayQAResult(question, answer) {
             </div>
         </div>
     `;
-    
+
     const qaDiv = $('#div_qa_res');
     if (qaDiv.is(':hidden')) {
         qaDiv.show().html(`
@@ -686,23 +686,23 @@ function displayQAResult(question, answer) {
     } else {
         qaDiv.find('.qa-content').append(qaHtml);
     }
-    
+
     // Scroll to newly added content
-    qaDiv.find('.qa-item').last()[0].scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'nearest' 
+    qaDiv.find('.qa-item').last()[0].scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
     });
 }
 
 function setDefaultQAQuery() {
     const companyName = $('#company_name').val().trim();
     const lang = $('#lang').val();
-    
+
     if (!companyName) {
         $('#ta_qa_query').val('');
         return;
     }
-    
+
     const queryTemplates = {
         'zh-CN': `${companyName}的负面新闻有哪些？依次列出。`,
         'zh-HK': `${companyName}的負面新聞有哪些？依次列出。`,
@@ -710,7 +710,7 @@ function setDefaultQAQuery() {
         'en-US': `What are the negative news about ${companyName}? Please list them in order.`,
         'ja-JP': `${companyName}のネガティブなニュースは何ですか？順番に列挙してください。`
     };
-    
+
     const defaultQuery = queryTemplates[lang] || queryTemplates['en-US'];
     $('#ta_qa_query').val(defaultQuery);
 }

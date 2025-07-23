@@ -2,13 +2,13 @@ import asyncio
 import logging
 from typing import List, Literal, Optional
 
+from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.vectorstores import InMemoryVectorStore, VectorStore
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -31,10 +31,11 @@ DEFAULT_CHUNK_OVERLAP = 100
 class FinancialCrime(BaseModel):
     """
     Pydantic model for financial crime classification.
-    
+
     This model represents the result of financial crime analysis,
     including the type of crime suspected and the probability level.
     """
+
     crime_type: Literal[
         "Not suspected",
         "Money Laundering",
@@ -64,11 +65,11 @@ This refers specifically to financial crimes and not to other types of crime.
 class FCTagging:
     """
     Financial Crime Tagging system using LLM for document classification.
-    
+
     This class provides methods to analyze documents and identify potential
     financial crimes using language models and vector search capabilities.
     """
-    
+
     TAGGING_PROMPT = ChatPromptTemplate.from_template(
         """
 You are an expert financial crime analyst. Analyze the following passage and determine:
@@ -102,7 +103,7 @@ Passage:
     ) -> None:
         """
         Initialize the FCTagging system.
-        
+
         Args:
             llm: Language model for tagging
             emb: Embedding model for vector operations
@@ -116,10 +117,10 @@ Passage:
     def _validate_tags(self, tags: List) -> None:
         """
         Validate that tags are valid FinancialCrime instances.
-        
+
         Args:
             tags: List of tags to validate
-            
+
         Raises:
             ValueError: If any tag is not a valid FinancialCrime instance
         """
@@ -131,52 +132,66 @@ Passage:
     async def _tag_single(self, doc: Document) -> dict:
         """
         Tag a single document for financial crime detection.
-        
+
         Args:
             doc: Document to analyze
-            
+
         Returns:
             Dictionary containing crime_type and probability
         """
         # Input validation
         if not doc or not doc.page_content or not doc.page_content.strip():
             logger.warning("Empty or invalid document content")
-            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
-        
+            return {
+                "crime_type": DEFAULT_CRIME_TYPE,
+                "probability": DEFAULT_PROBABILITY,
+            }
+
         if len(doc.page_content.strip()) < MIN_CONTENT_LENGTH:
             logger.warning("Document content too short to analyze")
-            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
-        
+            return {
+                "crime_type": DEFAULT_CRIME_TYPE,
+                "probability": DEFAULT_PROBABILITY,
+            }
+
         try:
             tag = await self.tagging_chain.ainvoke({"input": doc.page_content})
         except Exception as e:
             logger.error(f"Error tagging single document: {e}")
-            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
+            return {
+                "crime_type": DEFAULT_CRIME_TYPE,
+                "probability": DEFAULT_PROBABILITY,
+            }
 
         if not isinstance(tag, FinancialCrime):
             logger.error("LLM response is not a valid FinancialCrime instance")
-            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
+            return {
+                "crime_type": DEFAULT_CRIME_TYPE,
+                "probability": DEFAULT_PROBABILITY,
+            }
 
         return tag.model_dump(mode="json")
 
-    async def _tag_batch(self, docs: List[Document], max_concurrency: Optional[int] = None) -> List[dict]:
+    async def _tag_batch(
+        self, docs: List[Document], max_concurrency: Optional[int] = None
+    ) -> List[dict]:
         """
         Tag multiple documents in batch for financial crime detection.
-        
+
         Args:
             docs: List of documents to analyze
             max_concurrency: Maximum number of concurrent requests
-            
+
         Returns:
             List of dictionaries containing crime_type and probability for each document
         """
         if not docs:
             logger.warning("Empty document list provided")
             return []
-        
+
         if max_concurrency is None:
             max_concurrency = DEFAULT_MAX_CONCURRENCY
-            
+
         try:
             tags = await self.tagging_chain.abatch(
                 [{"input": doc.page_content} for doc in docs],
@@ -184,37 +199,45 @@ Passage:
             )
         except Exception as e:
             logger.error(f"Error tagging batch documents: {e}")
-            return [{"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY} for _ in docs]
+            return [
+                {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
+                for _ in docs
+            ]
 
         try:
             self._validate_tags(tags)
         except ValueError as e:
             logger.error(f"Tag validation failed: {e}")
-            return [{"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY} for _ in docs]
+            return [
+                {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
+                for _ in docs
+            ]
 
         return [tag.model_dump(mode="json") for tag in tags]  # type: ignore
-    
-    
+
     async def tagging_combine(
         self,
         docs: List[Document],
     ) -> dict:
         """
         Combine multiple document tagging results into a final assessment.
-        
+
         Args:
             docs: List of documents to analyze
-            
+
         Returns:
             Dictionary containing combined crime_type and probability assessment
-            
+
         Raises:
             ValueError: If document list is empty
         """
         if not docs:
             logger.warning("Empty document list provided to tagging_combine")
-            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
-            
+            return {
+                "crime_type": DEFAULT_CRIME_TYPE,
+                "probability": DEFAULT_PROBABILITY,
+            }
+
         medium_proba_types = set()
         high_proba_types = set()
 
@@ -223,7 +246,7 @@ Passage:
             crime_type = tag.get("crime_type")
             if crime_type == DEFAULT_CRIME_TYPE:
                 continue
-                
+
             probability = tag.get("probability")
             if probability == "medium":
                 medium_proba_types.add(crime_type)
@@ -231,14 +254,20 @@ Passage:
                 high_proba_types.add(crime_type)
 
         if high_proba_types:
-            return {"crime_type": ", ".join(sorted(high_proba_types)), "probability": "high"}
+            return {
+                "crime_type": ", ".join(sorted(high_proba_types)),
+                "probability": "high",
+            }
         elif medium_proba_types:
             return {
                 "crime_type": ", ".join(sorted(medium_proba_types)),
                 "probability": "medium",
             }
         else:
-            return {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
+            return {
+                "crime_type": DEFAULT_CRIME_TYPE,
+                "probability": DEFAULT_PROBABILITY,
+            }
 
     async def tagging_rag(
         self,
@@ -249,19 +278,19 @@ Passage:
     ) -> dict:
         """
         Perform financial crime tagging using Retrieval-Augmented Generation (RAG).
-        
+
         This method uses vector similarity search to find the most relevant documents
         for financial crime detection, then performs tagging on those documents.
-        
+
         Args:
             docs: Optional list of documents to use for creating temporary vector store
             vectordb: Optional pre-existing vector store to search from
             filter: Optional filter to apply during vector search
             k: Number of documents to retrieve (defaults to DEFAULT_K)
-            
+
         Returns:
             Dictionary containing crime_type and probability assessment
-            
+
         Raises:
             ValueError: If neither docs nor vectordb are provided
         """
@@ -301,8 +330,10 @@ manipulation of securities markets?
 if __name__ == "__main__":
     import asyncio
     import sys
+
     from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
     from langchain_text_splitters import RecursiveCharacterTextSplitter
+
     from crawler import ApifyCrawler
 
     if sys.platform == "win32":
@@ -326,7 +357,9 @@ if __name__ == "__main__":
             )
         )
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000, chunk_overlap=100
+        )
         all_chunks = text_splitter.split_documents(doc)
 
         fctagging = FCTagging(llm, emb)
@@ -347,7 +380,7 @@ if __name__ == "__main__":
         # print("\ntagging with RAG...")
         tags = asyncio.run(fctagging.tagging_rag(all_chunks))
         # print(tags)
-        
+
         # Results available for testing
         _ = tag, tags
 

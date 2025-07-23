@@ -14,29 +14,68 @@
             --font-small: 0.8rem;
             --font-xs: 0.7rem;
         }
-        
-        body { font-size: var(--font-base); }
-        .table, .table a, .btn, .form-control, .form-select, 
-        .form-label, .form-check-label, .alert { font-size: var(--font-small); }
-        .table thead th { font-size: 0.82rem; }
-        .modal-title { font-size: 1.1rem; }
-        small { font-size: var(--font-xs); }
-        
+
+        body {
+            font-size: var(--font-base);
+        }
+
+        .table,
+        .table a,
+        .btn,
+        .form-control,
+        .form-select,
+        .form-label,
+        .form-check-label,
+        .alert {
+            font-size: var(--font-small);
+        }
+
+        .table thead th {
+            font-size: 0.82rem;
+        }
+
+        .modal-title {
+            font-size: 1.1rem;
+        }
+
+        small {
+            font-size: var(--font-xs);
+        }
+
         /* UI improvements */
-        .search-form { min-height: calc(100vh - 2rem); }
-        .results-container { background: #f8f9fa; }
-        .modal-dialog { max-width: 600px; }
-        .btn-group .btn { min-width: 120px; }
-        
+        .search-form {
+            min-height: calc(100vh - 2rem);
+        }
+
+        .results-container {
+            background: #f8f9fa;
+        }
+
+        .modal-dialog {
+            max-width: 600px;
+        }
+
+        .btn-group .btn {
+            min-width: 120px;
+        }
+
         /* Loading states */
-        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .spinner-border-sm { width: 0.875rem; height: 0.875rem; }
-        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .spinner-border-sm {
+            width: 0.875rem;
+            height: 0.875rem;
+        }
+
         /* Custom table header styling */
         .table-dark-blue {
             background-color: #1e3a8a !important;
             color: white !important;
         }
+
         .table-dark-blue th {
             background-color: #1e3a8a !important;
             color: white !important;
@@ -62,11 +101,10 @@
                         <form id="frm_web_search">
                             <div class="mb-3">
                                 <label for="company_name" class="form-label">Company to check:</label>
-                                <input id="company_name" name="company_name" type="text" 
-                                       class="form-control" required autocomplete="on"
-                                       placeholder="Enter company name">
+                                <input id="company_name" name="company_name" type="text" class="form-control" required
+                                    autocomplete="on" placeholder="Enter company name">
                             </div>
-                            
+
                             <div class="mb-3">
                                 <label for="lang" class="form-label">Language:</label>
                                 <select id="lang" name="lang" class="form-select">
@@ -77,7 +115,7 @@
                                     <option value="ja-JP">日本語</option>
                                 </select>
                             </div>
-                            
+
                             <div class="mb-3">
                                 <label for="search_suffix" class="form-label">Search Topic:</label>
                                 <select id="search_suffix" name="search_suffix" class="form-select">
@@ -86,7 +124,7 @@
                                     <option value="everything">(Everything)</option>
                                 </select>
                             </div>
-                            
+
                             <div class="row">
                                 <div class="col-6">
                                     <div class="mb-3">
@@ -109,7 +147,7 @@
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <div class="mb-3">
                                 <label for="llm_model" class="form-label">LLM Model:</label>
                                 <select id="llm_model" name="llm_model" class="form-select">
@@ -125,7 +163,7 @@
                                     <small class="text-muted">Supported: GPT-4.1, GPT-4o, GPT-4o Mini</small>
                                 </div>
                             </div>
-                            
+
                             <div class="d-grid">
                                 <button type="submit" class="btn btn-primary">
                                     <i class="bi bi-search me-2"></i>Search News
@@ -156,24 +194,20 @@
                         </div>
                         <div class="card-body">
                             <div class="btn-group w-100" role="group">
-                                <button type="button" id="btn_crawler" 
-                                        class="btn btn-outline-primary disabled" 
-                                        data-bs-toggle="modal" data-bs-target="#crawler_modal">
+                                <button type="button" id="btn_crawler" class="btn btn-outline-primary disabled"
+                                    data-bs-toggle="modal" data-bs-target="#crawler_modal">
                                     <i class="bi bi-download me-1"></i>Get Content
                                 </button>
-                                <button type="button" id="btn_tagging" 
-                                        class="btn btn-outline-primary disabled" 
-                                        data-bs-toggle="modal" data-bs-target="#tagging_modal">
+                                <button type="button" id="btn_tagging" class="btn btn-outline-primary disabled"
+                                    data-bs-toggle="modal" data-bs-target="#tagging_modal">
                                     <i class="bi bi-tags me-1"></i>FC Tagging
                                 </button>
-                                <button type="button" id="btn_summary" 
-                                        class="btn btn-outline-primary disabled" 
-                                        data-bs-toggle="modal" data-bs-target="#summary_modal">
+                                <button type="button" id="btn_summary" class="btn btn-outline-primary disabled"
+                                    data-bs-toggle="modal" data-bs-target="#summary_modal">
                                     <i class="bi bi-file-text me-1"></i>Summary
                                 </button>
-                                <button type="button" id="btn_qa" 
-                                        class="btn btn-outline-primary disabled" 
-                                        data-bs-toggle="modal" data-bs-target="#qa_modal">
+                                <button type="button" id="btn_qa" class="btn btn-outline-primary disabled"
+                                    data-bs-toggle="modal" data-bs-target="#qa_modal">
                                     <i class="bi bi-question-circle me-1"></i>Q&A
                                 </button>
                             </div>
@@ -189,7 +223,8 @@
                                 <h5 class="modal-title" id="crawlerModalLabel">
                                     <i class="bi bi-download me-2"></i>Get Web Content
                                 </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
                                 <form id="frm_crawler">
@@ -201,7 +236,8 @@
                                                 </div>
                                                 <div class="card-body">
                                                     <div class="form-check mb-2">
-                                                        <input type="checkbox" id="contents_save" class="form-check-input" checked>
+                                                        <input type="checkbox" id="contents_save"
+                                                            class="form-check-input" checked>
                                                         <label for="contents_save" class="form-check-label">
                                                             Save to storage
                                                         </label>
@@ -210,7 +246,8 @@
                                                         <label for="contents_save_days" class="form-label">
                                                             <small>Update if older than:</small>
                                                         </label>
-                                                        <select id="contents_save_days" class="form-select form-select-sm">
+                                                        <select id="contents_save_days"
+                                                            class="form-select form-select-sm">
                                                             <option value="30">30 days</option>
                                                             <option value="60">60 days</option>
                                                             <option value="90" selected>90 days</option>
@@ -228,7 +265,8 @@
                                                 </div>
                                                 <div class="card-body">
                                                     <div class="form-check mb-2">
-                                                        <input type="checkbox" id="contents_load" class="form-check-input" checked>
+                                                        <input type="checkbox" id="contents_load"
+                                                            class="form-check-input" checked>
                                                         <label for="contents_load" class="form-check-label">
                                                             Load from storage
                                                         </label>
@@ -237,7 +275,8 @@
                                                         <label for="contents_load_days" class="form-label">
                                                             <small>Load if newer than:</small>
                                                         </label>
-                                                        <select id="contents_load_days" class="form-select form-select-sm">
+                                                        <select id="contents_load_days"
+                                                            class="form-select form-select-sm">
                                                             <option value="30">30 days</option>
                                                             <option value="60">60 days</option>
                                                             <option value="90" selected>90 days</option>
@@ -252,7 +291,8 @@
                                 </form>
                             </div>
                             <div class="modal-footer">
-                                <button type="button" id="btn_crawler_submit" class="btn btn-primary" data-bs-dismiss="modal">
+                                <button type="button" id="btn_crawler_submit" class="btn btn-primary"
+                                    data-bs-dismiss="modal">
                                     <i class="bi bi-play-fill me-1"></i>Start Crawling
                                 </button>
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -269,7 +309,8 @@
                                 <h5 class="modal-title" id="taggingModalLabel">
                                     <i class="bi bi-tags me-2"></i>FC Tagging
                                 </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
                                 <form id="frm_tagging">
@@ -280,7 +321,7 @@
                                             <option value="all">Full-text</option>
                                         </select>
                                     </div>
-                                    
+
                                     <div class="row">
                                         <div class="col-md-6">
                                             <div class="card">
@@ -289,8 +330,10 @@
                                                 </div>
                                                 <div class="card-body">
                                                     <div class="form-check mb-2">
-                                                        <input type="checkbox" id="tags_save" class="form-check-input" checked>
-                                                        <label for="tags_save" class="form-check-label">Save tags</label>
+                                                        <input type="checkbox" id="tags_save" class="form-check-input"
+                                                            checked>
+                                                        <label for="tags_save" class="form-check-label">Save
+                                                            tags</label>
                                                     </div>
                                                     <div>
                                                         <label for="tags_save_days" class="form-label">
@@ -314,8 +357,10 @@
                                                 </div>
                                                 <div class="card-body">
                                                     <div class="form-check mb-2">
-                                                        <input type="checkbox" id="tags_load" class="form-check-input" checked>
-                                                        <label for="tags_load" class="form-check-label">Load tags</label>
+                                                        <input type="checkbox" id="tags_load" class="form-check-input"
+                                                            checked>
+                                                        <label for="tags_load" class="form-check-label">Load
+                                                            tags</label>
                                                     </div>
                                                     <div>
                                                         <label for="tags_load_days" class="form-label">
@@ -336,7 +381,8 @@
                                 </form>
                             </div>
                             <div class="modal-footer">
-                                <button type="button" id="btn_tagging_submit" class="btn btn-primary" data-bs-dismiss="modal">
+                                <button type="button" id="btn_tagging_submit" class="btn btn-primary"
+                                    data-bs-dismiss="modal">
                                     <i class="bi bi-play-fill me-1"></i>Start Tagging
                                 </button>
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -353,7 +399,8 @@
                                 <h5 class="modal-title" id="summaryModalLabel">
                                     <i class="bi bi-file-text me-2"></i>Summary Generation
                                 </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
                                 <form id="frm_summary">
@@ -365,7 +412,7 @@
                                             <option value="500">500 words</option>
                                         </select>
                                     </div>
-                                    
+
                                     <div class="mb-3">
                                         <label for="summary_method" class="form-label">Method:</label>
                                         <select id="summary_method" class="form-select">
@@ -373,18 +420,18 @@
                                             <option value="iterative-refinement">Iterative Refinement</option>
                                         </select>
                                     </div>
-                                    
+
                                     <div class="mb-3">
                                         <div class="form-check">
-                                            <input type="checkbox" id="summary_clus_docs" 
-                                                   class="form-check-input" checked
-                                                   onchange="document.getElementById('summary_num_clus').disabled=!this.checked;">
+                                            <input type="checkbox" id="summary_clus_docs" class="form-check-input"
+                                                checked
+                                                onchange="document.getElementById('summary_num_clus').disabled=!this.checked;">
                                             <label for="summary_clus_docs" class="form-check-label">
                                                 Cluster documents (reduces LLM calls)
                                             </label>
                                         </div>
                                     </div>
-                                    
+
                                     <div class="mb-3">
                                         <label for="summary_num_clus" class="form-label">Number of Clusters:</label>
                                         <select id="summary_num_clus" class="form-select">
@@ -396,7 +443,8 @@
                                 </form>
                             </div>
                             <div class="modal-footer">
-                                <button type="button" id="btn_summary_submit" class="btn btn-primary" data-bs-dismiss="modal">
+                                <button type="button" id="btn_summary_submit" class="btn btn-primary"
+                                    data-bs-dismiss="modal">
                                     <i class="bi bi-play-fill me-1"></i>Generate Summary
                                 </button>
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -413,14 +461,15 @@
                                 <h5 class="modal-title" id="qaModalLabel">
                                     <i class="bi bi-question-circle me-2"></i>Question & Answer
                                 </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
                                 <form id="frm_qa">
                                     <div class="mb-3">
                                         <label for="ta_qa_query" class="form-label">Your Question:</label>
-                                        <textarea id="ta_qa_query" class="form-control" rows="4" 
-                                                  placeholder="Enter your question about the news content..."></textarea>
+                                        <textarea id="ta_qa_query" class="form-control" rows="4"
+                                            placeholder="Enter your question about the news content..."></textarea>
                                         <div class="form-text">
                                             <small class="text-muted">
                                                 <i class="bi bi-lightbulb me-1"></i>
@@ -431,7 +480,8 @@
                                 </form>
                             </div>
                             <div class="modal-footer">
-                                <button type="button" id="btn_qa_submit" class="btn btn-primary" data-bs-dismiss="modal">
+                                <button type="button" id="btn_qa_submit" class="btn btn-primary"
+                                    data-bs-dismiss="modal">
                                     <i class="bi bi-play-fill me-1"></i>Ask Question
                                 </button>
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>

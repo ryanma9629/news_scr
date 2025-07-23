@@ -33,8 +33,8 @@ DEFAULT_PORT = 8280
 # Supported LLM deployments mapping
 SUPPORTED_LLM_DEPLOYMENTS = {
     "gpt-4.1": "gpt-4.1",
-    "gpt-4o": "gpt-4o", 
-    "gpt-4o-mini": "gpt-4o-mini"
+    "gpt-4o": "gpt-4o",
+    "gpt-4o-mini": "gpt-4o-mini",
 }
 
 # Default LLM configuration
@@ -106,8 +106,10 @@ def init_llm_and_embeddings(deployment: str = "gpt-4o", model: str = "gpt-4o"):
     """Initialize LLM and embeddings with common configuration."""
     # Validate LLM deployment
     if deployment not in SUPPORTED_LLM_DEPLOYMENTS:
-        raise ValueError(f"Unsupported LLM deployment: {deployment}. Supported deployments: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}")
-    
+        raise ValueError(
+            f"Unsupported LLM deployment: {deployment}. Supported deployments: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}"
+        )
+
     azure_deployment = SUPPORTED_LLM_DEPLOYMENTS[deployment]
     llm = AzureChatOpenAI(azure_deployment=azure_deployment, model=model, temperature=0)
     emb = AzureOpenAIEmbeddings(model="text-embedding-3-small")
@@ -119,7 +121,7 @@ def validate_llm_deployment(llm_model: str) -> str:
     if llm_model not in SUPPORTED_LLM_DEPLOYMENTS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported LLM model: {llm_model}. Currently supported models: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}"
+            detail=f"Unsupported LLM model: {llm_model}. Currently supported models: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}",
         )
     return SUPPORTED_LLM_DEPLOYMENTS[llm_model]
 
@@ -962,9 +964,7 @@ async def summarize_news_content(request: SummaryRequest):
         try:
             azure_deployment = validate_llm_deployment(request.llm_model)
         except HTTPException as e:
-            return create_error_response(
-                SummaryResponse, str(e.detail), summary=None
-            )
+            return create_error_response(SummaryResponse, str(e.detail), summary=None)
 
         # Handle missing session ID
         if not session_id:

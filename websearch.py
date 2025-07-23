@@ -2,8 +2,8 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from typing import List, Optional, TypedDict
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
 from langchain_community.utilities import BingSearchAPIWrapper
 from langchain_community.utilities.google_serper import GoogleSerperAPIWrapper
 
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 class SearchResult(TypedDict):
     """Type definition for search result structure."""
+
     url: str
     title: str
 
@@ -57,15 +58,15 @@ LOCATION_MAPPINGS = {
 class WebSearch(ABC):
     """
     Abstract base class for web search implementations.
-    
+
     This class provides a common interface for different web search providers,
     defining the basic structure and required methods for search operations.
     """
-    
+
     def __init__(self, lang: str, location: Optional[str] = None) -> None:
         """
         Initialize web search with language and location settings.
-        
+
         Args:
             lang: Language for search results
             location: Location for search results (optional)
@@ -102,15 +103,15 @@ class WebSearch(ABC):
     ) -> Optional[List[SearchResult]]:
         """
         Abstract method for performing web search.
-        
+
         Args:
             keywords: Search keywords
             max_results: Maximum number of results to return
             **kwargs: Additional search parameters
-            
+
         Returns:
             List of search results or None if search fails
-            
+
         Raises:
             NotImplementedError: Must be implemented by subclasses
         """
@@ -120,15 +121,15 @@ class WebSearch(ABC):
 class GoogleSerperNews(WebSearch):
     """
     Google Serper News Search implementation.
-    
+
     This class provides news search functionality using the Google Serper API,
     with support for language and location-based filtering.
     """
-    
+
     def __init__(self, lang: str, location: Optional[str] = None) -> None:
         """
         Initialize Google Serper News search.
-        
+
         Args:
             lang: Language for search results
             location: Location for search results (optional)
@@ -148,12 +149,12 @@ class GoogleSerperNews(WebSearch):
     ) -> Optional[List[SearchResult]]:
         """
         Search for news using Google Serper API.
-        
+
         Args:
             keywords: Search keywords
             max_results: Maximum number of results to return
             **kwargs: Additional search parameters
-            
+
         Returns:
             List of search results or None if search fails
         """
@@ -175,7 +176,9 @@ class GoogleSerperNews(WebSearch):
             if search_results:
                 # Ensure we don't return more results than requested
                 limited_results = search_results[:max_results]
-                logger.info(f"Found {len(search_results)} results from Google, returning {len(limited_results)}")
+                logger.info(
+                    f"Found {len(search_results)} results from Google, returning {len(limited_results)}"
+                )
                 return self._create_search_result(limited_results)
             else:
                 logger.warning("No results found from Google")
@@ -192,15 +195,15 @@ class GoogleSerperNews(WebSearch):
 class BingSearch(WebSearch):
     """
     Bing Search implementation.
-    
+
     This class provides search functionality using the Bing Search API,
     with support for language and market-based filtering.
     """
-    
+
     def __init__(self, lang: str, location: Optional[str] = None) -> None:
         """
         Initialize Bing search.
-        
+
         Args:
             lang: Language for search results
             location: Location for search results (optional)
@@ -220,12 +223,12 @@ class BingSearch(WebSearch):
     ) -> Optional[List[SearchResult]]:
         """
         Search using Bing Search API.
-        
+
         Args:
             keywords: Search keywords
             max_results: Maximum number of results to return
             **kwargs: Additional search parameters
-            
+
         Returns:
             List of search results or None if search fails
         """
@@ -248,10 +251,12 @@ class BingSearch(WebSearch):
             bing_key = os.getenv("BING_SUBSCRIPTION_KEY")
             if not bing_key:
                 raise ValueError("BING_SUBSCRIPTION_KEY environment variable not set")
-                
+
             search = BingSearchAPIWrapper(
                 bing_subscription_key=bing_key,
-                bing_search_url=os.getenv("BING_SEARCH_URL", "https://api.bing.microsoft.com/v7.0/search"),
+                bing_search_url=os.getenv(
+                    "BING_SEARCH_URL", "https://api.bing.microsoft.com/v7.0/search"
+                ),
                 k=max_results,
                 search_kwargs=search_kwargs,
             )
@@ -260,7 +265,9 @@ class BingSearch(WebSearch):
             if search_results:
                 # Ensure we don't return more results than requested
                 limited_results = search_results[:max_results]
-                logger.info(f"Found {len(search_results)} results from Bing, returning {len(limited_results)}")
+                logger.info(
+                    f"Found {len(search_results)} results from Bing, returning {len(limited_results)}"
+                )
                 return self._create_search_result(limited_results)
             else:
                 logger.warning("No results found from Bing")
@@ -275,6 +282,7 @@ class BingSearch(WebSearch):
 
 
 if __name__ == "__main__":
+
     def main():
         """Main function for testing search functionality."""
         google_search = GoogleSerperNews(lang="English", location="United States")
@@ -286,9 +294,8 @@ if __name__ == "__main__":
         bing_result = bing_search.search("Theranos")
         # Debug output - uncomment for testing
         # print("Bing search result:", bing_result)
-        
+
         # Results available for testing
         _ = google_result, bing_result
-    
+
     main()
-    

@@ -29,7 +29,9 @@ DEFAULT_DOC_SEPARATOR = "\n\n"
 # Error messages
 NO_CONTEXT_MESSAGE = "I don't have enough information to answer this question."
 GENERATION_ERROR_MESSAGE = "I'm unable to generate an answer at this time."
-TECHNICAL_ERROR_MESSAGE = "I'm unable to process your question due to a technical issue. Please try again."
+TECHNICAL_ERROR_MESSAGE = (
+    "I'm unable to process your question due to a technical issue. Please try again."
+)
 
 # Prompt templates
 SYSTEM_PROMPT_TEMPLATE = """Use the following pieces of context to answer the question at the end.
@@ -98,9 +100,7 @@ class QAWithContext(QA):
     and generates answers based on the retrieved documents.
     """
 
-    def __init__(
-        self, llm: BaseChatModel, emb: Embeddings
-    ) -> None:
+    def __init__(self, llm: BaseChatModel, emb: Embeddings) -> None:
         """
         Initialize the context-based QA system.
 
@@ -332,7 +332,9 @@ if __name__ == "__main__":
             )
         )
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000, chunk_overlap=100
+        )
         all_chunks = text_splitter.split_documents(doc)
 
         qa = QAWithContext(llm, emb)
@@ -341,7 +343,7 @@ if __name__ == "__main__":
         )
         # Debug output - uncomment for testing
         # print(response["answer"])
-        
+
         # Result available for testing
         _ = response
 
