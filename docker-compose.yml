@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  news-scraper:
+    build: .
+    ports:
+      - "8280:8280"
+    environment:
+      # Server configuration
+      - HOST=0.0.0.0
+      - PORT=8280
+      - RELOAD=false
+      
+      # MongoDB connection (connects to mongodb service)
+      - MONGO_URI=mongodb://mongodb:27017
+      
+      # Azure OpenAI configuration (required - set these in .env file)
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-02-01}
+      
+      # Search API keys (optional - set these in .env file)
+      - BING_SUBSCRIPTION_KEY=${BING_SUBSCRIPTION_KEY}
+      - BING_SEARCH_URL=${BING_SEARCH_URL:-https://api.bing.microsoft.com/v7.0/search}
+      - SERPER_API_KEY=${SERPER_API_KEY}
+      
+      # Apify configuration (optional)
+      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
+      
+      # SSL configuration (optional)
+      - SSL_KEYFILE=${SSL_KEYFILE}
+      - SSL_CERTFILE=${SSL_CERTFILE}
+    volumes:
+      - ./cert.pem:/app/cert.pem:ro
+      - ./key.pem:/app/key.pem:ro
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8280/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=adverse_news_screening
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  default:
+    driver: bridge

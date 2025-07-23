@@ -1,5 +1,6 @@
 import logging
 import re
+import os
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -105,9 +106,12 @@ class MongoStore(DocStore):
             db: Database name to use
         """
         super().__init__(company_name, lang)
-        self.client = client or MongoClient()
+        
+        # Get MongoDB URI from environment variable or use default
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+        self.client = client or MongoClient(mongo_uri)
         self.db = db
-        logger.info(f"MongoStore initialized for company: {company_name}, lang: {lang}")
+        logger.info(f"MongoStore initialized for company: {company_name}, lang: {lang}, uri: {mongo_uri}")
 
     @contextmanager
     def _get_collection(self, collection: str):

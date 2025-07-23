@@ -11,3 +11,7 @@ test*.*
 nohup.out
 prompt.txt
 .venv/
+
+# Docker
+.docker/
+docker-compose.override.yml
