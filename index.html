@@ -366,47 +366,32 @@
                                         </select>
                                     </div>
                                     
-                                    <!-- Advanced Options -->
-                                    <div class="accordion" id="summaryAdvanced">
-                                        <div class="accordion-item">
-                                            <h2 class="accordion-header">
-                                                <button class="accordion-button collapsed" type="button" 
-                                                        data-bs-toggle="collapse" data-bs-target="#summary_adv_option">
-                                                    <i class="bi bi-gear me-2"></i>Advanced Options
-                                                </button>
-                                            </h2>
-                                            <div id="summary_adv_option" class="accordion-collapse collapse">
-                                                <div class="accordion-body">
-                                                    <div class="mb-3">
-                                                        <label for="summary_method" class="form-label">Method:</label>
-                                                        <select id="summary_method" class="form-select">
-                                                            <option value="map-reduce" selected>Map-Reduce (Recommended)</option>
-                                                            <option value="iterative-refinement">Iterative Refinement</option>
-                                                        </select>
-                                                    </div>
-                                                    
-                                                    <div class="mb-3">
-                                                        <div class="form-check">
-                                                            <input type="checkbox" id="summary_clus_docs" 
-                                                                   class="form-check-input" checked
-                                                                   onchange="document.getElementById('summary_num_clus').disabled=!this.checked;">
-                                                            <label for="summary_clus_docs" class="form-check-label">
-                                                                Cluster documents (reduces LLM calls)
-                                                            </label>
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    <div class="mb-3">
-                                                        <label for="summary_num_clus" class="form-label">Number of Clusters:</label>
-                                                        <select id="summary_num_clus" class="form-select">
-                                                            <option value="2" selected>2</option>
-                                                            <option value="3">3</option>
-                                                            <option value="5">5</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                            </div>
+                                    <div class="mb-3">
+                                        <label for="summary_method" class="form-label">Method:</label>
+                                        <select id="summary_method" class="form-select">
+                                            <option value="map-reduce" selected>Map-Reduce (Recommended)</option>
+                                            <option value="iterative-refinement">Iterative Refinement</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input type="checkbox" id="summary_clus_docs" 
+                                                   class="form-check-input" checked
+                                                   onchange="document.getElementById('summary_num_clus').disabled=!this.checked;">
+                                            <label for="summary_clus_docs" class="form-check-label">
+                                                Cluster documents (reduces LLM calls)
+                                            </label>
                                         </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="summary_num_clus" class="form-label">Number of Clusters:</label>
+                                        <select id="summary_num_clus" class="form-select">
+                                            <option value="2" selected>2</option>
+                                            <option value="3">3</option>
+                                            <option value="5">5</option>
+                                        </select>
                                     </div>
                                 </form>
                             </div>
