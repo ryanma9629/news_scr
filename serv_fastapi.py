@@ -15,7 +15,7 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
-from crawler import ApifyCrawler
+from crawler import ApifyCrawler, CrawlerType
 from docstore import MongoStore
 from query import QAWithContext
 from summarization import MapReduceSummarization, RefinementSummarization
@@ -355,7 +355,7 @@ class SearchRequest(BaseModel):
 
 class CrawlerRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to crawl")
-    crawler_type: str = Field(default="apify", description="Crawler type ('apify')")
+    crawler_type: CrawlerType = Field(default="playwright:adaptive", description="Crawler type ('cheerio', 'playwright:chrome', 'playwright:firefox', 'playwright:adaptive')")
     company_name: str = Field(..., description="Company name for storage")
     lang: str = Field(..., description="Language code for storage")
     contents_save: bool = Field(default=True, description="Save contents to storage")
@@ -684,11 +684,11 @@ async def crawl_news_content(request: CrawlerRequest):
         # Step 2: Crawl remaining URLs
         crawled_contents = []
         if urls_to_crawl:
-            logger.info(f"Crawling {len(urls_to_crawl)} URLs")
+            logger.info(f"Crawling {len(urls_to_crawl)} URLs with crawler type: {request.crawler_type}")
             crawler = ApifyCrawler()
 
             try:
-                documents = await crawler.get(urls_to_crawl)
+                documents = await crawler.get(urls_to_crawl, crawler_type=request.crawler_type)
                 url_to_doc = {
                     doc.metadata.get("source", ""): doc
                     for doc in documents

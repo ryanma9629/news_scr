@@ -159,9 +159,6 @@
                                     <option value="qwen-turbo" disabled>Qwen Turbo (Not Supported)</option>
                                     <option value="deepseek-v3" disabled>DeepSeek V3 (Not Supported)</option>
                                 </select>
-                                <div class="form-text">
-                                    <small class="text-muted">Supported: GPT-4.1, GPT-4o, GPT-4o Mini</small>
-                                </div>
                             </div>
 
                             <div class="d-grid">
@@ -228,6 +225,37 @@
                             </div>
                             <div class="modal-body">
                                 <form id="frm_crawler">
+                                    <!-- Crawler Type Selection -->
+                                    <div class="row mb-3">
+                                        <div class="col-12">
+                                            <div class="card">
+                                                <div class="card-header">
+                                                    <h6 class="mb-0">Crawler Settings</h6>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="mb-2">
+                                                        <label for="crawler_type" class="form-label">
+                                                            Crawler Type:
+                                                        </label>
+                                                        <select id="crawler_type" class="form-select">
+                                                            <option value="playwright:adaptive" selected>Adaptive switching</option>
+                                                            <option value="playwright:firefox">Web browser (firefox)</option>
+                                                            <option value="playwright:chrome">Web browser (chrome)</option>
+                                                            <option value="cheerio">Raw HTTP client</option>
+                                                        </select>
+                                                        <div class="form-text">
+                                                            <small>
+                                                                <strong>Adaptive:</strong> Automatically switches between raw HTTP for static pages and Chrome browser (via Playwright) for dynamic pages |
+                                                                <strong>Web browsers:</strong> Headless web browser with anti-blocking measures enabled |
+                                                                <strong>Raw HTTP client:</strong> High-performance crawling mode that uses raw HTTP requests
+                                                            </small>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
                                     <div class="row">
                                         <div class="col-md-6">
                                             <div class="card mb-3">
@@ -261,7 +289,7 @@
                                         <div class="col-md-6">
                                             <div class="card mb-3">
                                                 <div class="card-header">
-                                                    <h6 class="mb-0">Load Settings</h6>
+                                                    <h6 class="mb-0">Storage Settings</h6>
                                                 </div>
                                                 <div class="card-body">
                                                     <div class="form-check mb-2">
@@ -273,7 +301,7 @@
                                                     </div>
                                                     <div class="mb-2">
                                                         <label for="contents_load_days" class="form-label">
-                                                            <small>Load if newer than:</small>
+                                                            <small>Load if not older than:</small>
                                                         </label>
                                                         <select id="contents_load_days"
                                                             class="form-select form-select-sm">
@@ -326,7 +354,7 @@
                                         <div class="col-md-6">
                                             <div class="card">
                                                 <div class="card-header">
-                                                    <h6 class="mb-0">Storage</h6>
+                                                    <h6 class="mb-0">Storage settings</h6>
                                                 </div>
                                                 <div class="card-body">
                                                     <div class="form-check mb-2">
@@ -353,7 +381,7 @@
                                         <div class="col-md-6">
                                             <div class="card">
                                                 <div class="card-header">
-                                                    <h6 class="mb-0">Load</h6>
+                                                    <h6 class="mb-0">Storage settings</h6>
                                                 </div>
                                                 <div class="card-body">
                                                     <div class="form-check mb-2">
@@ -364,7 +392,7 @@
                                                     </div>
                                                     <div>
                                                         <label for="tags_load_days" class="form-label">
-                                                            <small>Load if newer than:</small>
+                                                            <small>Load if not older than:</small>
                                                         </label>
                                                         <select id="tags_load_days" class="form-select form-select-sm">
                                                             <option value="30">30 days</option>
