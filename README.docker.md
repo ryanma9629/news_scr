@@ -27,7 +27,7 @@ The following environment variables are **required** and must be set in your `.e
 
 - `AZURE_OPENAI_API_KEY`: Your Azure OpenAI API key
 - `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint URL
-- `AZURE_OPENAI_API_VERSION`: Azure OpenAI API version (default: 2024-02-01)
+- `OPENAI_API_VERSION`: OpenAI API version (default: 2025-03-01-preview)
 
 ### Optional Environment Variables
 

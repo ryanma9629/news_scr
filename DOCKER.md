@@ -38,7 +38,7 @@ nano .env
 **Required Environment Variables:**
 - `AZURE_OPENAI_API_KEY`: Your Azure OpenAI API key
 - `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint URL
-- `AZURE_OPENAI_API_VERSION`: API version (default: 2024-02-01)
+- `OPENAI_API_VERSION`: API version (default: 2025-03-01-preview)
 
 ### 3. Access Application
 

@@ -24,7 +24,7 @@ services:
       # Azure OpenAI configuration (required - set these in .env file)
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
-      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-02-01}
+      - OPENAI_API_VERSION=${OPENAI_API_VERSION:-2025-03-01-preview}
       
       # Search API keys (optional - set these in .env file)
       - BING_SUBSCRIPTION_KEY=${BING_SUBSCRIPTION_KEY}
