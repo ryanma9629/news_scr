@@ -67,8 +67,8 @@ SEARCH_SUFFIX_MAP = {
     "everything": {"zh-CN": "", "zh-HK": "", "zh-TW": "", "en-US": "", "ja-JP": ""},
 }
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging - WARNING level for production
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Session storage
@@ -167,7 +167,6 @@ def handle_storage_operation(operation_func, operation_name: str, *args, **kwarg
     """Generic handler for storage operations with error handling."""
     try:
         result = operation_func(*args, **kwargs)
-        logger.info(f"Successfully {operation_name}")
         return result
     except Exception as e:
         logger.error(f"Error {operation_name}: {e}")
@@ -215,7 +214,6 @@ def cleanup_expired_sessions():
 
     for session_id in expired_sessions:
         del SESSION_STORE[session_id]
-        logger.info(f"Cleaned up expired session: {session_id}")
 
 
 # Consolidated validation and processing utilities
@@ -251,9 +249,7 @@ def get_contents_from_session_with_validation(
             missing_urls.append(url)
 
     if missing_urls:
-        logger.warning(
-            f"URLs not found in session for {operation_name}: {missing_urls}"
-        )
+        pass  # URLs not found in session
 
     if not contents:
         return (
@@ -302,7 +298,7 @@ def get_server_config():
     config = {
         "host": os.getenv("HOST", DEFAULT_HOST),
         "port": int(os.getenv("PORT", str(DEFAULT_PORT))),
-        "reload": os.getenv("RELOAD", "true").lower() == "true",
+        "reload": os.getenv("RELOAD", "false").lower() == "true",
         "ssl_keyfile": os.getenv("SSL_KEYFILE"),
         "ssl_certfile": os.getenv("SSL_CERTFILE"),
     }
@@ -652,9 +648,6 @@ async def crawl_news_content(request: CrawlerRequest):
 
         # Step 1: Load from storage if enabled
         if request.contents_load:
-            logger.info(
-                f"Loading contents from MongoDB (within {request.contents_load_days} days)..."
-            )
             contents_from_db = (
                 handle_storage_operation(
                     mongo_store.load_contents,
@@ -678,9 +671,6 @@ async def crawl_news_content(request: CrawlerRequest):
                 )
 
             urls_to_crawl = [url for url in request.urls if url not in stored_urls]
-            logger.info(
-                f"Found {len(contents_from_db)} URLs in MongoDB, {len(urls_to_crawl)} URLs to crawl"
-            )
         else:
             urls_to_crawl = request.urls
 
@@ -1010,8 +1000,6 @@ async def summarize_news_content(request: SummaryRequest):
         if error_msg:
             return SummaryResponse(success=False, message=error_msg, summary=None)
 
-        logger.info(f"Found {len(contents)} contents to summarize")
-
         try:
             # Initialize LLM and embeddings with the validated model
             llm, emb = init_llm_and_embeddings(azure_deployment, request.llm_model)
@@ -1038,8 +1026,6 @@ async def summarize_news_content(request: SummaryRequest):
                 max_words=request.max_words,
                 num_cluster=num_clusters,
             )
-
-            logger.info("Summarization completed successfully")
 
             return SummaryResponse(
                 success=True,
@@ -1156,7 +1142,7 @@ async def qa_endpoint(request: QARequest):
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "message": "News Search API is running"}
+    return {"status": "healthy", "message": "Adverse News Screening API is running."}
 
 
 # Mount root directory for direct file access (must be after all API routes)
@@ -1164,7 +1150,6 @@ app.mount("/", StaticFiles(directory=".", html=True), name="root")
 
 if __name__ == "__main__":
     import os
-
     import uvicorn
 
     # Get server configuration
