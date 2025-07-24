@@ -8,7 +8,6 @@ const AppState = {
 
     setSessionId(id) {
         this.sessionId = id;
-        console.log('Session ID saved:', id);
     },
 
     setNewsResults(results) {
@@ -255,7 +254,6 @@ function performSearch() {
                 const message = AjaxHelper.handleError(xhr, status, 'Search');
                 AlertManager.showError('Search Failed', message);
                 hideSearchResults();
-                console.error('Search error:', { xhr, status, error });
             })
             .always(() => {
                 UIState.toggleFormInputs(false);
@@ -384,7 +382,6 @@ function getNewsContent() {
             AlertManager.showError('Content Retrieval Failed', message);
             $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>');
             UIState.disableButtons('#btn_tagging, #btn_summary, #btn_qa');
-            console.error('Get content error:', { xhr, status, error });
         })
         .always(() => {
             UIState.toggleSubmitButton('#btn_crawler_submit', false);
@@ -416,7 +413,6 @@ function handleContentSuccess(response) {
                     failCount++;
                 }
             } else {
-                console.error(`Status cell with index ${index} not found`);
                 failCount++;
             }
         });
@@ -467,7 +463,6 @@ function performTagging() {
             AlertManager.hide();
             const message = AjaxHelper.handleError(xhr, status, 'FC tagging');
             AlertManager.showError('FC Tagging Failed', message);
-            console.error('Tagging error:', { xhr, status, error });
         })
         .always(() => {
             UIState.toggleSubmitButton('#btn_tagging_submit', false);
@@ -515,7 +510,6 @@ function handleTaggingSuccess(response) {
                     failCount++;
                 }
             } else {
-                console.error(`Row with index ${index} not found`);
                 failCount++;
             }
         });
@@ -559,7 +553,6 @@ function performSummary() {
             AlertManager.hide();
             const message = AjaxHelper.handleError(xhr, status, 'Summary generation');
             AlertManager.showError('Summary Generation Failed', message);
-            console.error('Summary error:', { xhr, status, error });
         })
         .always(() => {
             UIState.toggleSubmitButton('#btn_summary_submit', false);
@@ -634,7 +627,6 @@ function performQA() {
             AlertManager.hide();
             const message = AjaxHelper.handleError(xhr, status, 'Q&A processing');
             AlertManager.showError('Q&A Processing Failed', message);
-            console.error('QA error:', { xhr, status, error });
         })
         .always(() => {
             UIState.toggleSubmitButton('#btn_qa_submit', false);
