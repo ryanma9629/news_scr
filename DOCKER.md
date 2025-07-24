@@ -1,6 +1,6 @@
-# News Scraper - Docker Deployment Guide
+# Adverse News Screening - Docker Deployment Guide
 
-This guide provides comprehensive instructions for deploying the News Scraper application using Docker.
+This guide provides comprehensive instructions for deploying the Adverse News Screening application using Docker.
 
 ## 📋 Prerequisites
 
@@ -79,7 +79,7 @@ Use the `docker.sh` script for easy management:
 ./docker.sh logs
 
 # View logs (specific service)
-./docker.sh logs news-scraper
+./docker.sh logs adverse-news-screening
 ./docker.sh logs mongodb
 
 # Check status
@@ -104,10 +104,10 @@ docker-compose logs -f
 docker-compose down
 
 # Rebuild specific service
-docker-compose build news-scraper
+docker-compose build adverse-news-screening
 
 # Access service shell
-docker-compose exec news-scraper bash
+docker-compose exec adverse-news-screening bash
 docker-compose exec mongodb mongosh
 ```
 
@@ -214,10 +214,10 @@ docker-compose exec mongodb mongosh --eval "db.adminCommand('ping')"
 3. **Application won't start**:
 ```bash
 # Check application logs
-./docker.sh logs news-scraper
+./docker.sh logs adverse-news-screening
 
 # Verify environment variables
-docker-compose exec news-scraper env | grep -E "(AZURE|MONGO)"
+docker-compose exec adverse-news-screening env | grep -E "(AZURE|MONGO)"
 ```
 
 4. **Memory issues**:
@@ -246,7 +246,7 @@ curl http://localhost:8280/api/health
 docker-compose logs -f
 
 # Filter by service
-docker-compose logs -f news-scraper | grep ERROR
+docker-compose logs -f adverse-news-screening | grep ERROR
 
 # Check MongoDB operations
 docker-compose logs mongodb | grep -E "(connection|error)"
@@ -263,7 +263,7 @@ Enable development features:
 RELOAD=true
 
 # Or override in docker-compose
-docker-compose run --rm -p 8280:8280 -e RELOAD=true news-scraper
+docker-compose run --rm -p 8280:8280 -e RELOAD=true adverse-news-screening
 ```
 
 ### Code Changes
@@ -272,20 +272,20 @@ For development with live reload:
 
 ```bash
 # Mount source code
-docker-compose run --rm -p 8280:8280 -v $(pwd):/app news-scraper python serv_fastapi.py
+docker-compose run --rm -p 8280:8280 -v $(pwd):/app adverse-news-screening python serv_fastapi.py
 ```
 
 ### Debugging
 
 ```bash
 # Access application container
-docker-compose exec news-scraper bash
+docker-compose exec adverse-news-screening bash
 
 # Check Python environment
-docker-compose exec news-scraper python -c "import sys; print(sys.path)"
+docker-compose exec adverse-news-screening python -c "import sys; print(sys.path)"
 
 # Test database connection
-docker-compose exec news-scraper python -c "from docstore import MongoStore; store = MongoStore('test', 'en'); print('Connection OK')"
+docker-compose exec adverse-news-screening python -c "from docstore import MongoStore; store = MongoStore('test', 'en'); print('Connection OK')"
 ```
 
 ## 📊 Monitoring
@@ -319,7 +319,7 @@ Scale the application service:
 
 ```bash
 # Scale to 3 instances
-docker-compose up -d --scale news-scraper=3
+docker-compose up -d --scale adverse-news-screening=3
 
 # Use load balancer (nginx example)
 # Add nginx service to docker-compose.yml
@@ -360,13 +360,218 @@ git pull
 ./docker.sh start
 ```
 
-## 📞 Support
+## 📦 Building and Publishing Docker Images
 
-For issues with the Docker deployment:
+### Build Docker Image
 
-1. Check the troubleshooting section above
-2. Review application and MongoDB logs
-3. Verify environment configuration
-4. Test individual components
+To create a Docker image for your Adverse News Screening application:
 
-Remember to never commit sensitive information like API keys to version control!
+```bash
+# Build the image with a specific tag
+docker build -t adverse-news-screening:latest .
+
+# Build with version tag
+docker build -t adverse-news-screening:v1.0.0 .
+
+# Build with custom registry prefix
+docker build -t your-registry.com/adverse-news-screening:latest .
+```
+
+### Tag Images for Remote Repository
+
+Before uploading to a remote repository, tag your image appropriately:
+
+```bash
+# For Docker Hub
+docker tag adverse-news-screening:latest your-dockerhub-username/adverse-news-screening:latest
+docker tag adverse-news-screening:latest your-dockerhub-username/adverse-news-screening:v1.0.0
+
+# For GitHub Container Registry
+docker tag adverse-news-screening:latest ghcr.io/your-username/adverse-news-screening:latest
+docker tag adverse-news-screening:latest ghcr.io/your-username/adverse-news-screening:v1.0.0
+
+# For AWS ECR
+docker tag adverse-news-screening:latest 123456789012.dkr.ecr.us-west-2.amazonaws.com/adverse-news-screening:latest
+
+# For Google Container Registry
+docker tag adverse-news-screening:latest gcr.io/your-project-id/adverse-news-screening:latest
+
+# For Azure Container Registry
+docker tag adverse-news-screening:latest your-registry.azurecr.io/adverse-news-screening:latest
+```
+
+### Upload to Remote Repositories
+
+#### Docker Hub
+
+1. **Login to Docker Hub**:
+```bash
+docker login
+# Enter your Docker Hub username and password
+```
+
+2. **Push the image**:
+```bash
+docker push your-dockerhub-username/adverse-news-screening:latest
+docker push your-dockerhub-username/adverse-news-screening:v1.0.0
+```
+
+#### GitHub Container Registry (GHCR)
+
+1. **Create a Personal Access Token** with `write:packages` permission in GitHub settings
+
+2. **Login to GHCR**:
+```bash
+echo $GITHUB_TOKEN | docker login ghcr.io -u your-username --password-stdin
+# Or interactively:
+docker login ghcr.io -u your-username
+```
+
+3. **Push the image**:
+```bash
+docker push ghcr.io/your-username/adverse-news-screening:latest
+docker push ghcr.io/your-username/adverse-news-screening:v1.0.0
+```
+
+#### AWS Elastic Container Registry (ECR)
+
+1. **Install and configure AWS CLI**:
+```bash
+aws configure
+```
+
+2. **Get login token**:
+```bash
+aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-west-2.amazonaws.com
+```
+
+3. **Create repository** (if it doesn't exist):
+```bash
+aws ecr create-repository --repository-name adverse-news-screening --region us-west-2
+```
+
+4. **Push the image**:
+```bash
+docker push 123456789012.dkr.ecr.us-west-2.amazonaws.com/adverse-news-screening:latest
+```
+
+#### Google Container Registry (GCR)
+
+1. **Install and configure gcloud CLI**:
+```bash
+gcloud auth configure-docker
+```
+
+2. **Push the image**:
+```bash
+docker push gcr.io/your-project-id/adverse-news-screening:latest
+```
+
+#### Azure Container Registry (ACR)
+
+1. **Login to Azure**:
+```bash
+az login
+az acr login --name your-registry
+```
+
+2. **Push the image**:
+```bash
+docker push your-registry.azurecr.io/adverse-news-screening:latest
+```
+
+### Automated Build and Push Script
+
+Create a script to automate the build and push process:
+
+```bash
+#!/bin/bash
+# build-and-push.sh
+
+set -e
+
+# Configuration
+REGISTRY="your-dockerhub-username"  # Change this to your registry
+IMAGE_NAME="adverse-news-screening"
+VERSION=${1:-latest}
+
+echo "🔨 Building Docker image..."
+docker build -t ${IMAGE_NAME}:${VERSION} .
+
+echo "🏷️  Tagging image for registry..."
+docker tag ${IMAGE_NAME}:${VERSION} ${REGISTRY}/${IMAGE_NAME}:${VERSION}
+
+if [ "$VERSION" != "latest" ]; then
+    docker tag ${IMAGE_NAME}:${VERSION} ${REGISTRY}/${IMAGE_NAME}:latest
+fi
+
+echo "📤 Pushing to registry..."
+docker push ${REGISTRY}/${IMAGE_NAME}:${VERSION}
+
+if [ "$VERSION" != "latest" ]; then
+    docker push ${REGISTRY}/${IMAGE_NAME}:latest
+fi
+
+echo "✅ Successfully pushed ${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+```
+
+Make it executable and use it:
+```bash
+chmod +x build-and-push.sh
+
+# Push with latest tag
+./build-and-push.sh
+
+# Push with specific version
+./build-and-push.sh v1.0.0
+```
+
+### Using Published Images
+
+Once your image is published, others can use it:
+
+```bash
+# Pull and run from Docker Hub
+docker run -d -p 8280:8280 --name adverse-news-screening your-dockerhub-username/adverse-news-screening:latest
+
+# Pull and run from GHCR
+docker run -d -p 8280:8280 --name adverse-news-screening ghcr.io/your-username/adverse-news-screening:latest
+
+# Use in docker-compose.yml
+version: '3.8'
+services:
+  adverse-news-screening:
+    image: your-dockerhub-username/adverse-news-screening:latest
+    # ... rest of configuration
+```
+
+### Multi-Platform Builds
+
+For compatibility across different architectures (ARM64, AMD64):
+
+```bash
+# Create and use a new builder
+docker buildx create --name multiarch --use
+
+# Build for multiple platforms
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t your-registry/adverse-news-screening:latest \
+  --push .
+```
+
+### Best Practices for Image Publishing
+
+1. **Use semantic versioning** for tags (v1.0.0, v1.1.0, etc.)
+2. **Always tag with 'latest'** for the most recent stable version
+3. **Include build metadata** in image labels:
+```dockerfile
+LABEL version="1.0.0" \
+      description="Adverse News Screening Application" \
+      maintainer="your-email@example.com" \
+      build-date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+```
+4. **Keep images small** by using multi-stage builds and minimal base images
+5. **Scan for vulnerabilities** before publishing:
+```bash
+docker scout cves adverse-news-screening:latest
+```

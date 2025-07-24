@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# News Scraper Docker Management Script
+# Adverse News Screening Docker Management Script
 
 set -e
 
@@ -59,14 +59,14 @@ setup_env() {
 
 # Build the application
 build() {
-    print_info "Building News Scraper Docker image..."
+    print_info "Building Adverse News Screening Docker image..."
     docker-compose build
     print_success "Build completed successfully!"
 }
 
 # Start the application
 start() {
-    print_info "Starting News Scraper application..."
+    print_info "Starting Adverse News Screening application..."
     docker-compose up -d
     
     print_success "Application started successfully!"
@@ -76,7 +76,7 @@ start() {
 
 # Stop the application
 stop() {
-    print_info "Stopping News Scraper application..."
+    print_info "Stopping Adverse News Screening application..."
     docker-compose down
     print_success "Application stopped successfully!"
 }
@@ -113,7 +113,7 @@ clean() {
 
 # Show help
 show_help() {
-    echo "News Scraper Docker Management Script"
+    echo "Adverse News Screening Docker Management Script"
     echo ""
     echo "Usage: $0 [COMMAND]"
     echo ""
