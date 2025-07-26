@@ -8,7 +8,6 @@ const AppState = {
 
     setSessionId(id) {
         this.sessionId = id;
-        console.log('Session ID saved:', id);
     },
 
     setNewsResults(results) {
@@ -634,7 +633,6 @@ function performQA() {
             AlertManager.hide();
             const message = AjaxHelper.handleError(xhr, status, 'Q&A processing');
             AlertManager.showError('Q&A Processing Failed', message);
-            console.error('QA error:', { xhr, status, error });
         })
         .always(() => {
             UIState.toggleSubmitButton('#btn_qa_submit', false);
@@ -645,14 +643,38 @@ function handleQASuccess(response) {
     AlertManager.hide();
 
     if (response.success && response.answer) {
-        displayQAResult(response.question, response.answer);
+        displayQAResult(response.question, response.answer, response.urls || []);
         AlertManager.show(response.message || 'Q&A processing successful', 'success', false);
     } else {
-        AlertManager.show(response.message || 'Q&A processing failed', 'danger');
+        AlertManager.show(response.message || 'Q&A processing failed - no answer received', 'danger');
     }
 }
 
-function displayQAResult(question, answer) {
+function displayQAResult(question, answer, urls = []) {
+    // Create sources HTML if URLs are provided
+    let sourcesHtml = '';
+    if (urls && urls.length > 0) {
+        const sourceLinks = urls.map((url, index) => {
+            const domain = Utils.getDomainFromUrl(url);
+            return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
+                        <span class="badge bg-secondary me-1">${index + 1}</span>
+                        ${domain}
+                    </a>`;
+        }).join(' ');
+        
+        sourcesHtml = `
+            <div class="sources mt-2 pt-2 border-top">
+                <small class="text-muted">
+                    <i class="bi bi-link-45deg me-1"></i>
+                    <strong>Sources:</strong>
+                </small>
+                <div class="mt-1">
+                    ${sourceLinks}
+                </div>
+            </div>
+        `;
+    }
+
     const qaHtml = `
         <div class="qa-item mb-3 p-3 border rounded">
             <div class="question mb-2">
@@ -663,6 +685,7 @@ function displayQAResult(question, answer) {
                 <strong class="text-success">A: </strong>
                 <span style="white-space: pre-wrap; line-height: 1.6;">${Utils.escapeHtml(answer)}</span>
             </div>
+            ${sourcesHtml}
             <div class="mt-2">
                 <small class="text-muted">
                     <i class="bi bi-clock me-1"></i>
@@ -673,6 +696,7 @@ function displayQAResult(question, answer) {
     `;
 
     const qaDiv = $('#div_qa_res');
+    
     if (qaDiv.is(':hidden')) {
         qaDiv.show().html(`
             <div class="p-3">

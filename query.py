@@ -52,6 +52,7 @@ class QAState(TypedDict):
     question: str
     context: List[Document]
     answer: str
+    urls: List[str]
 
 
 class QA(ABC):
@@ -84,7 +85,7 @@ class QA(ABC):
             lang: The language for the response
 
         Returns:
-            Dictionary containing the query result
+            Dictionary containing the query result with question, answer, and source URLs
 
         Raises:
             NotImplementedError: This method must be implemented by subclasses
@@ -183,11 +184,27 @@ class QAWithContext(QA):
                             state["question"], k=k, filter=filter_dict
                         ),
                     )
-                logger.info(f"Retrieved {len(retrieved_docs)} documents for query")
-                return {"context": retrieved_docs}
+                
+                # Extract unique URLs from document metadata
+                urls = []
+                seen_urls = set()
+                for doc in retrieved_docs:
+                    # Try different common metadata keys for URL
+                    url = (
+                        doc.metadata.get("source") or 
+                        doc.metadata.get("url") or 
+                        doc.metadata.get("link") or
+                        doc.metadata.get("source_url")
+                    )
+                    if url and url not in seen_urls:
+                        urls.append(url)
+                        seen_urls.add(url)
+                
+                logger.info(f"Retrieved {len(retrieved_docs)} documents from {len(urls)} unique sources")
+                return {"context": retrieved_docs, "urls": urls}
             except Exception as e:
                 logger.error(f"Error during document retrieval: {e}")
-                return {"context": []}
+                return {"context": [], "urls": []}
 
         return retrieve
 
@@ -257,7 +274,7 @@ class QAWithContext(QA):
             k: Number of documents to retrieve (default: from config)
 
         Returns:
-            Dictionary containing question, context, and answer
+            Dictionary containing question, context, answer, and source URLs
 
         Raises:
             ValueError: If both docs and vectordb are None
@@ -285,7 +302,7 @@ class QAWithContext(QA):
 
             # Execute the workflow
             response = await graph.ainvoke(
-                {"question": query, "context": [], "answer": ""}
+                {"question": query, "context": [], "answer": "", "urls": []}
             )
             logger.info("Query processed successfully")
             return response
@@ -299,6 +316,7 @@ class QAWithContext(QA):
                 "question": query,
                 "context": [],
                 "answer": TECHNICAL_ERROR_MESSAGE,
+                "urls": [],
             }
 
 
@@ -342,7 +360,8 @@ if __name__ == "__main__":
             qa.query("Why Theranos closed in 2018?", lang="Chinese", docs=all_chunks)
         )
         # Debug output - uncomment for testing
-        # print(response["answer"])
+        print("Answer:", response["answer"])
+        print("Sources:", response["urls"])
 
         # Result available for testing
         _ = response

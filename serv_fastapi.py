@@ -483,6 +483,7 @@ class QAResponse(BaseModel):
     success: bool
     question: Optional[str] = None
     answer: Optional[str] = None
+    urls: Optional[List[str]] = None
     message: str
 
 
@@ -1059,6 +1060,7 @@ async def qa_endpoint(request: QARequest):
                 str(e.detail),
                 question=request.question,
                 answer=None,
+                urls=[],
             )
 
         # Validate session and URLs
@@ -1071,6 +1073,7 @@ async def qa_endpoint(request: QARequest):
                 validation_error or "Validation failed",
                 question=request.question,
                 answer=None,
+                urls=[],
             )
 
         # Get contents from session with validation (session_id guaranteed to be valid)
@@ -1080,7 +1083,7 @@ async def qa_endpoint(request: QARequest):
 
         if error_msg:
             return create_error_response(
-                QAResponse, error_msg, question=request.question, answer=None
+                QAResponse, error_msg, question=request.question, answer=None, urls=[]
             )
 
         # Initialize LLM and embeddings using the validated model
@@ -1103,6 +1106,7 @@ async def qa_endpoint(request: QARequest):
                 "No valid document content found for answering the question",
                 question=request.question,
                 answer=None,
+                urls=[],
             )
 
         # Split documents into chunks
@@ -1124,6 +1128,7 @@ async def qa_endpoint(request: QARequest):
             "Q&A processing successful",
             question=result.get("question", request.question),
             answer=result.get("answer"),
+            urls=result.get("urls", []),
         )
 
     except Exception as e:
@@ -1133,6 +1138,7 @@ async def qa_endpoint(request: QARequest):
             f"Q&A processing failed: {str(e)}",
             question=request.question,
             answer=None,
+            urls=[],
         )
 
 
