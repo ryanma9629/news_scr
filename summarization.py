@@ -56,16 +56,17 @@ REDUCE_PROMPT_TEMPLATE = """The following is a set of summaries:
 ------------
 {docs}
 ------------
-Take these and distill it into a final, consolidated summary of the main themes in {lang} within {max_words} words.
+Take these and distill it into a final, consolidated summary of the main themes in {lang}. Make the summary {summary_level}: {summary_description}.
 """
 
-INITIAL_SUMMARY_TEMPLATE = """Write a concise summary in {lang} within {max_words} words of the following:
+INITIAL_SUMMARY_TEMPLATE = """Write a {summary_level} summary in {lang} of the following:
 ------------
 {context}
 ------------
+Summary style: {summary_description}
 """
 
-REFINE_SUMMARY_TEMPLATE = """Produce a final summary in {lang} with no more than {max_words} words.
+REFINE_SUMMARY_TEMPLATE = """Produce a {summary_level} summary in {lang}.
 
 Existing summary up to this point:
 ------------
@@ -76,12 +77,39 @@ New context:
 ------------
 {context}
 ------------
-Given the new context, refine the original summary.
+Given the new context, refine the original summary. Summary style: {summary_description}
 """
 
 # Default constants
 DEFAULT_MAX_WORDS = 200
 DEFAULT_MAX_TOKENS = 2000
+
+# Summary level mappings
+SUMMARY_LEVELS = {
+    "brief": {
+        "description": "provide a concise overview focusing on the most essential points and key takeaways"
+    },
+    "moderate": {
+        "description": "provide a balanced summary with sufficient detail to understand the main themes and important context"
+    },
+    "detailed": {
+        "description": "provide a comprehensive summary covering all significant aspects, background information, and nuanced details"
+    }
+}
+
+DEFAULT_SUMMARY_LEVEL = "moderate"
+
+
+def get_summary_description(summary_level: str) -> str:
+    """Get the description for a given summary level.
+    
+    Args:
+        summary_level: The summary level ("brief", "moderate", "detailed")
+        
+    Returns:
+        Description string for the summary level
+    """
+    return SUMMARY_LEVELS.get(summary_level, SUMMARY_LEVELS[DEFAULT_SUMMARY_LEVEL])["description"]
 
 
 class Summarization(ABC):
@@ -103,14 +131,14 @@ class Summarization(ABC):
 
     @abstractmethod
     def summarize(
-        self, docs: List[Document], lang: str, max_words: int, num_cluster: int = 0
+        self, docs: List[Document], lang: str, summary_level: str = DEFAULT_SUMMARY_LEVEL, num_cluster: int = 0
     ) -> str:
         """Generate summary for given documents.
 
         Args:
             docs: List of documents to summarize
             lang: Target language for the summary
-            max_words: Maximum number of words in the summary
+            summary_level: Level of detail for the summary ("brief", "moderate", "detailed")
             num_cluster: Number of clusters for document clustering (0 = no clustering)
 
         Returns:
@@ -198,12 +226,12 @@ class Summarization(ABC):
             return error_msg
 
     @abstractmethod
-    def _create_chains(self, lang: str, max_words: int) -> tuple:
+    def _create_chains(self, lang: str, summary_level: str) -> tuple:
         """Create and return configured chains for summarization.
 
         Args:
             lang: Target language for the summary
-            max_words: Maximum number of words in the summary
+            summary_level: Level of detail for the summary ("brief", "moderate", "detailed")
 
         Returns:
             Tuple of configured chains
@@ -275,12 +303,12 @@ class MapReduceSummarization(Summarization):
             [("human", REDUCE_PROMPT_TEMPLATE)]
         )
 
-    def _create_chains(self, lang: str, max_words: int) -> tuple:
+    def _create_chains(self, lang: str, summary_level: str) -> tuple:
         """Create and return configured chains for Map-Reduce summarization.
 
         Args:
             lang: Target language for the summary
-            max_words: Maximum number of words in the summary
+            summary_level: Level of detail for the summary ("brief", "moderate", "detailed")
 
         Returns:
             Tuple of (map_chain, reduce_chain)
@@ -288,7 +316,12 @@ class MapReduceSummarization(Summarization):
         map_prompt = self.map_prompt.partial(lang=lang)
         map_chain = map_prompt | self.llm | StrOutputParser()
 
-        reduce_prompt = self.reduce_prompt.partial(lang=lang, max_words=max_words)
+        summary_description = get_summary_description(summary_level)
+        reduce_prompt = self.reduce_prompt.partial(
+            lang=lang, 
+            summary_level=summary_level,
+            summary_description=summary_description
+        )
         reduce_chain = reduce_prompt | self.llm | StrOutputParser()
 
         return map_chain, reduce_chain
@@ -443,7 +476,7 @@ class MapReduceSummarization(Summarization):
         self,
         docs: List[Document],
         lang: str,
-        max_words: int = DEFAULT_MAX_WORDS,
+        summary_level: str = DEFAULT_SUMMARY_LEVEL,
         max_token: int = DEFAULT_MAX_TOKENS,
         num_cluster: int = 0,
     ) -> str:
@@ -452,7 +485,7 @@ class MapReduceSummarization(Summarization):
         Args:
             docs: List of documents to summarize
             lang: Target language for the summary
-            max_words: Maximum number of words in the summary
+            summary_level: Level of detail for the summary ("brief", "moderate", "detailed")
             max_token: Maximum token count for intermediate processing
             num_cluster: Number of clusters for document clustering (0 = no clustering)
 
@@ -460,7 +493,7 @@ class MapReduceSummarization(Summarization):
             Generated summary text
         """
         logger.info(
-            f"Starting Map-Reduce summarization, docs: {len(docs)}, lang: {lang}, max_words: {max_words}, num_cluster: {num_cluster}"
+            f"Starting Map-Reduce summarization, docs: {len(docs)}, lang: {lang}, summary_level: {summary_level}, num_cluster: {num_cluster}"
         )
 
         # Apply clustering if requested
@@ -475,7 +508,7 @@ class MapReduceSummarization(Summarization):
         else:
             processed_docs = docs
 
-        map_chain, reduce_chain = self._create_chains(lang, max_words)
+        map_chain, reduce_chain = self._create_chains(lang, summary_level)
         graph_functions = self._create_graph_functions(
             map_chain, reduce_chain, max_token
         )
@@ -508,20 +541,30 @@ class RefinementSummarization(Summarization):
         self.initial_prompt = ChatPromptTemplate([("human", INITIAL_SUMMARY_TEMPLATE)])
         self.refine_prompt = ChatPromptTemplate([("human", REFINE_SUMMARY_TEMPLATE)])
 
-    def _create_chains(self, lang: str, max_words: int) -> tuple:
+    def _create_chains(self, lang: str, summary_level: str) -> tuple:
         """Create and return configured chains for refinement summarization.
 
         Args:
             lang: Target language for the summary
-            max_words: Maximum number of words in the summary
+            summary_level: Level of detail for the summary ("brief", "moderate", "detailed")
 
         Returns:
             Tuple of (initial_chain, refine_chain)
         """
-        initial_prompt = self.initial_prompt.partial(lang=lang, max_words=max_words)
+        summary_description = get_summary_description(summary_level)
+        
+        initial_prompt = self.initial_prompt.partial(
+            lang=lang, 
+            summary_level=summary_level,
+            summary_description=summary_description
+        )
         initial_chain = initial_prompt | self.llm | StrOutputParser()
 
-        refine_prompt = self.refine_prompt.partial(lang=lang, max_words=max_words)
+        refine_prompt = self.refine_prompt.partial(
+            lang=lang, 
+            summary_level=summary_level,
+            summary_description=summary_description
+        )
         refine_chain = refine_prompt | self.llm | StrOutputParser()
 
         return initial_chain, refine_chain
@@ -630,7 +673,7 @@ class RefinementSummarization(Summarization):
         self,
         docs: List[Document],
         lang: str,
-        max_words: int = DEFAULT_MAX_WORDS,
+        summary_level: str = DEFAULT_SUMMARY_LEVEL,
         num_cluster: int = 0,
     ) -> str:
         """Generate summary using iterative refinement method.
@@ -638,14 +681,14 @@ class RefinementSummarization(Summarization):
         Args:
             docs: List of documents to summarize
             lang: Target language for the summary
-            max_words: Maximum number of words in the summary
+            summary_level: Level of detail for the summary ("brief", "moderate", "detailed")
             num_cluster: Number of clusters for document clustering (0 = no clustering)
 
         Returns:
             Generated summary text
         """
         logger.info(
-            f"Starting iterative refinement summarization, docs: {len(docs)}, lang: {lang}, max_words: {max_words}, num_cluster: {num_cluster}"
+            f"Starting iterative refinement summarization, docs: {len(docs)}, lang: {lang}, summary_level: {summary_level}, num_cluster: {num_cluster}"
         )
 
         # Apply clustering if requested
@@ -660,7 +703,7 @@ class RefinementSummarization(Summarization):
         else:
             processed_docs = docs
 
-        initial_chain, refine_chain = self._create_chains(lang, max_words)
+        initial_chain, refine_chain = self._create_chains(lang, summary_level)
         graph_functions = self._create_graph_functions(initial_chain, refine_chain)
         graph = self._build_graph(*graph_functions)
         initial_state = self._create_initial_state(processed_docs)

@@ -533,7 +533,7 @@ function performSummary() {
         lang: $('#lang').val(),
         summary_method: $('#summary_method').val(),
         llm_model: $('#llm_model').val(),
-        max_words: parseInt($('#summary_max_words').val()),
+        summary_level: $('#summary_level').val(),
         cluster_docs: $('#summary_clus_docs').prop('checked'),
         num_clusters: parseInt($('#summary_num_clus').val()),
         session_id: AppState.sessionId

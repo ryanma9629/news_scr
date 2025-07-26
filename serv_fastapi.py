@@ -1,6 +1,8 @@
 import hashlib
 import logging
+import signal
 import socket
+import threading
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -18,7 +20,7 @@ from pydantic import BaseModel, Field
 from crawler import ApifyCrawler, CrawlerType
 from docstore import MongoStore
 from query import QAWithContext
-from summarization import MapReduceSummarization, RefinementSummarization
+from summarization import MapReduceSummarization, RefinementSummarization, SUMMARY_LEVELS
 from tagging import FCTagging
 from websearch import BingSearch, GoogleSerperNews
 
@@ -68,10 +70,93 @@ SEARCH_SUFFIX_MAP = {
 }
 
 # Configure logging - WARNING level for production
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+    ]
+)
 logger = logging.getLogger(__name__)
 
-# Session storage
+# Suppress noisy asyncio connection reset errors on Windows
+logging.getLogger("asyncio").setLevel(logging.CRITICAL)
+logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+
+class ThreadSafeSessionManager:
+    """Thread-safe session management with automatic cleanup."""
+    
+    def __init__(self, timeout_hours: int = DEFAULT_SESSION_TIMEOUT_HOURS):
+        self._sessions = {}
+        self._lock = threading.RLock()  # Re-entrant lock for nested operations
+        self._timeout_hours = timeout_hours
+    
+    def create_session(self, session_id: str) -> dict:
+        """Create a new session with thread-safe initialization."""
+        with self._lock:
+            if session_id not in self._sessions:
+                self._sessions[session_id] = {
+                    "created_at": datetime.now(),
+                    "last_accessed": datetime.now(),
+                    "search_results": [],
+                    "web_contents": {},
+                    "user_context": {},
+                }
+            return self._sessions[session_id]
+    
+    def get_session(self, session_id: str) -> dict:
+        """Get session data with thread-safe access."""
+        with self._lock:
+            session = self._sessions.get(session_id, {})
+            if session:
+                session["last_accessed"] = datetime.now()
+            return session.copy()  # Return copy to prevent external modification
+    
+    def update_session(self, session_id: str, key: str, value) -> None:
+        """Update session data with thread-safe access."""
+        with self._lock:
+            # Ensure session exists
+            if session_id not in self._sessions:
+                self.create_session(session_id)
+            
+            self._sessions[session_id][key] = value
+            self._sessions[session_id]["last_accessed"] = datetime.now()
+    
+    def cleanup_expired_sessions(self) -> int:
+        """Remove expired sessions and return count of removed sessions."""
+        cutoff_time = datetime.now() - timedelta(hours=self._timeout_hours)
+        with self._lock:
+            expired_sessions = [
+                session_id
+                for session_id, session_data in self._sessions.items()
+                if session_data.get("last_accessed", datetime.now()) < cutoff_time
+            ]
+            
+            for session_id in expired_sessions:
+                del self._sessions[session_id]
+            
+            return len(expired_sessions)
+    
+    def get_session_count(self) -> int:
+        """Get total number of active sessions."""
+        with self._lock:
+            return len(self._sessions)
+    
+    def remove_session(self, session_id: str) -> bool:
+        """Remove a specific session."""
+        with self._lock:
+            if session_id in self._sessions:
+                del self._sessions[session_id]
+                return True
+            return False
+
+
+# Global thread-safe session manager
+session_manager = ThreadSafeSessionManager()
+
+# Legacy session storage (deprecated - use session_manager)
 SESSION_STORE = {}
 SESSION_TIMEOUT_HOURS = DEFAULT_SESSION_TIMEOUT_HOURS
 
@@ -83,7 +168,8 @@ def require_session(strict: bool = True):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            cleanup_expired_sessions()
+            # Cleanup expired sessions using thread-safe manager
+            session_manager.cleanup_expired_sessions()
 
             # Extract request object from args
             request = None
@@ -181,39 +267,88 @@ def generate_session_id(ip: str, user_agent: str = "") -> str:
 
 
 def get_session_data(session_id: str) -> dict:
-    """Get session data for given session ID."""
-    session = SESSION_STORE.get(session_id, {})
-    if session:
-        session["last_accessed"] = datetime.now()
-    return session
+    """Get session data for given session ID using thread-safe manager."""
+    return session_manager.get_session(session_id)
 
 
 def update_session_data(session_id: str, key: str, value):
-    """Update session data for given session ID and key."""
-    if session_id not in SESSION_STORE:
-        SESSION_STORE[session_id] = {
-            "created_at": datetime.now(),
-            "last_accessed": datetime.now(),
-            "search_results": [],
-            "web_contents": {},
-            "user_context": {},
-        }
-
-    SESSION_STORE[session_id][key] = value
-    SESSION_STORE[session_id]["last_accessed"] = datetime.now()
+    """Update session data for given session ID and key using thread-safe manager."""
+    session_manager.update_session(session_id, key, value)
 
 
 def cleanup_expired_sessions():
-    """Remove expired sessions."""
-    cutoff_time = datetime.now() - timedelta(hours=SESSION_TIMEOUT_HOURS)
-    expired_sessions = [
-        session_id
-        for session_id, session_data in SESSION_STORE.items()
-        if session_data.get("last_accessed", datetime.now()) < cutoff_time
-    ]
+    """Remove expired sessions using thread-safe manager."""
+    return session_manager.cleanup_expired_sessions()
 
-    for session_id in expired_sessions:
-        del SESSION_STORE[session_id]
+
+# FastAPI Dependencies for Request-Scoped Resources
+
+def get_mongo_store(company_name: str = "default", lang: str = "en-US") -> MongoStore:
+    """Dependency to provide a MongoDB store instance with connection pooling.
+    
+    Args:
+        company_name: Company name for the store
+        lang: Language code for the store
+        
+    Returns:
+        MongoStore instance using the shared connection pool
+    """
+    return MongoStore(company_name=company_name, lang=lang)
+
+
+def get_session_manager() -> ThreadSafeSessionManager:
+    """Dependency to provide the thread-safe session manager."""
+    return session_manager
+
+
+def get_llm_components(deployment: str = DEFAULT_LLM_DEPLOYMENT):
+    """Dependency to provide LLM and embeddings components.
+    
+    Args:
+        deployment: LLM deployment name
+        
+    Returns:
+        Tuple of (llm, embeddings)
+    """
+    return init_llm_and_embeddings(deployment)
+
+
+class RequestContext:
+    """Request-scoped context for managing resources and state."""
+    
+    def __init__(self, session_id: Optional[str] = None):
+        self.session_id = session_id
+        self.session_manager = session_manager
+        self._mongo_store = None
+        self._llm_components = None
+    
+    def get_or_create_session(self) -> dict:
+        """Get or create session data for the request."""
+        if not self.session_id:
+            raise HTTPException(status_code=400, detail="Session ID is required")
+        
+        session_data = self.session_manager.get_session(self.session_id)
+        if not session_data:
+            session_data = self.session_manager.create_session(self.session_id)
+        
+        return session_data
+    
+    def get_mongo_store(self, company_name: str = "default", lang: str = "en-US") -> MongoStore:
+        """Get MongoStore instance for the request."""
+        if not self._mongo_store:
+            self._mongo_store = MongoStore(company_name=company_name, lang=lang)
+        return self._mongo_store
+    
+    def get_llm_components(self, deployment: str = DEFAULT_LLM_DEPLOYMENT):
+        """Get LLM components for the request."""
+        if not self._llm_components:
+            self._llm_components = init_llm_and_embeddings(deployment)
+        return self._llm_components
+
+
+def get_request_context(session_id: Optional[str] = None) -> RequestContext:
+    """Dependency to provide request-scoped context."""
+    return RequestContext(session_id=session_id)
 
 
 # Consolidated validation and processing utilities
@@ -285,8 +420,39 @@ def setup_app_configuration():
         expose_headers=["*"],
     )
 
+    # Add connection error handling middleware
+    @app.middleware("http")
+    async def connection_error_handler(request: Request, call_next):
+        """Handle connection reset errors gracefully."""
+        try:
+            response = await call_next(request)
+            return response
+        except ConnectionResetError:
+            # Return 499 status (Client Closed Request) - non-standard but commonly used
+            from fastapi.responses import Response
+            return Response(status_code=499, content="Client closed connection")
+        except Exception as e:
+            # Log other unexpected errors at ERROR level
+            logger.error(f"Unexpected error handling request: {str(e)}")
+            raise
+
     # Mount static files
     app.mount("/static", StaticFiles(directory="."), name="static")
+
+    # Add application lifecycle events
+    @app.on_event("startup")
+    async def startup_event():
+        # Cleanup any expired sessions on startup
+        session_manager.cleanup_expired_sessions()
+
+    @app.on_event("shutdown")
+    async def shutdown_event():
+        # Clean up resources
+        try:
+            from docstore import _mongo_manager
+            _mongo_manager.close()
+        except Exception as e:
+            logger.error(f"Error closing MongoDB connections: {e}")
 
     return app
 
@@ -301,6 +467,11 @@ def get_server_config():
         "reload": os.getenv("RELOAD", "false").lower() == "true",
         "ssl_keyfile": os.getenv("SSL_KEYFILE"),
         "ssl_certfile": os.getenv("SSL_CERTFILE"),
+        # Add connection handling configuration
+        "timeout_keep_alive": int(os.getenv("TIMEOUT_KEEP_ALIVE", "5")),
+        "timeout_graceful_shutdown": int(os.getenv("TIMEOUT_GRACEFUL_SHUTDOWN", "30")),
+        "limit_concurrency": int(os.getenv("LIMIT_CONCURRENCY", "1000")),
+        "limit_max_requests": int(os.getenv("LIMIT_MAX_REQUESTS", "10000")),
     }
 
     return config
@@ -404,8 +575,8 @@ class SummaryRequest(BaseModel):
         description="Summary method ('map-reduce' or 'iterative-refinement')",
     )
     llm_model: str = Field(default="gpt-4o", description="LLM model to use")
-    max_words: int = Field(
-        default=300, description="Maximum number of words in summary"
+    summary_level: str = Field(
+        default="moderate", description="Summary detail level ('brief', 'moderate', 'detailed')"
     )
     cluster_docs: bool = Field(
         default=True, description="Whether to cluster documents before summarization"
@@ -533,10 +704,6 @@ async def search_news(http_request: Request, request: SearchRequest):
         user_agent = http_request.headers.get("user-agent", "")
         session_id = request.session_id or generate_session_id(client_ip, user_agent)
 
-        logger.info(
-            f"Search request - company: {request.company_name}, engine: {request.search_engine}, session: {session_id}"
-        )
-
         # Validate LLM model
         try:
             validate_llm_deployment(request.llm_model)
@@ -626,9 +793,6 @@ async def crawl_news_content(request: CrawlerRequest):
     """Crawl content from news URLs using ApifyCrawler with storage and session support."""
     try:
         session_id = request.session_id
-        logger.info(
-            f"Crawler request received - session_id: {session_id}, URLs: {len(request.urls)}"
-        )
 
         # Validate session and URLs
         is_valid, validation_error = validate_session_and_urls(
@@ -678,9 +842,6 @@ async def crawl_news_content(request: CrawlerRequest):
         # Step 2: Crawl remaining URLs
         crawled_contents = []
         if urls_to_crawl:
-            logger.info(
-                f"Crawling {len(urls_to_crawl)} URLs with crawler type: {request.crawler_type}"
-            )
             crawler = ApifyCrawler()
 
             try:
@@ -777,9 +938,6 @@ async def tag_news_content(request: TaggingRequest):
     """Perform FC Tagging on news content with storage and session support."""
     try:
         session_id = request.session_id
-        logger.info(
-            f"Tagging request received - session_id: {session_id}, URLs: {len(request.urls)}"
-        )
 
         # Validate LLM model
         try:
@@ -811,9 +969,6 @@ async def tag_news_content(request: TaggingRequest):
         # Step 1: Load existing tags from storage
         tags_from_db = []
         if request.tags_load:
-            logger.info(
-                f"Loading tags from MongoDB (within {request.tags_load_days} days)..."
-            )
             tags_from_db = (
                 handle_storage_operation(
                     mongo_store.load_tags,
@@ -840,15 +995,11 @@ async def tag_news_content(request: TaggingRequest):
                 )
 
             urls_to_tag = [url for url in request.urls if url not in stored_urls]
-            logger.info(
-                f"Found {len(tags_from_db)} URLs in MongoDB, {len(urls_to_tag)} URLs to tag"
-            )
         else:
             urls_to_tag = request.urls
 
         # Step 2: Tag remaining URLs
         if urls_to_tag:
-            logger.info(f"Tagging {len(urls_to_tag)} URLs")
 
             # Get contents with fallback
             contents_to_tag, urls_without_content = load_from_storage_with_fallback(
@@ -967,9 +1118,6 @@ async def summarize_news_content(request: SummaryRequest):
     """
     try:
         session_id = request.session_id
-        logger.info(
-            f"Summary request received - session_id: {session_id}, URLs: {len(request.urls)}"
-        )
 
         # Validate LLM model
         try:
@@ -977,9 +1125,17 @@ async def summarize_news_content(request: SummaryRequest):
         except HTTPException as e:
             return SummaryResponse(success=False, message=str(e.detail), summary=None)
 
+        # Validate summary level
+        valid_levels = list(SUMMARY_LEVELS.keys())
+        if request.summary_level not in valid_levels:
+            return SummaryResponse(
+                success=False,
+                message=f"Invalid summary level '{request.summary_level}'. Valid options: {', '.join(valid_levels)}",
+                summary=None,
+            )
+
         # Handle missing session ID
         if not session_id:
-            logger.warning("No session ID provided in summary request")
             return SummaryResponse(
                 success=False,
                 message="Session is required. Please search for news and get content first, then try summarization again.",
@@ -1024,7 +1180,7 @@ async def summarize_news_content(request: SummaryRequest):
             summary = await summarizer.summarize(
                 docs=docs,
                 lang=request.lang,
-                max_words=request.max_words,
+                summary_level=request.summary_level,
                 num_cluster=num_clusters,
             )
 
@@ -1055,9 +1211,6 @@ async def qa_endpoint(request: QARequest):
     """Process QA request with context from session."""
     try:
         session_id = request.session_id
-        logger.info(
-            f"QA request received - session_id: {session_id}, company: {request.company_name}"
-        )
 
         # Validate LLM model
         try:
@@ -1090,8 +1243,12 @@ async def qa_endpoint(request: QARequest):
         )
 
         if error_msg:
-            return create_error_response(
-                QAResponse, error_msg, question=request.question, answer=None, urls=[]
+            return QAResponse(
+                success=False, 
+                message=error_msg, 
+                question=request.question, 
+                answer=None, 
+                urls=[]
             )
 
         # Initialize LLM and embeddings using the validated model
@@ -1158,6 +1315,24 @@ if __name__ == "__main__":
     import os
     import uvicorn
 
+    # Setup graceful shutdown handling
+    def signal_handler(signum, frame):
+        """Handle graceful shutdown on SIGINT/SIGTERM."""
+        try:
+            # Cleanup sessions and connections
+            session_manager.cleanup_expired_sessions()
+            from docstore import _mongo_manager
+            _mongo_manager.close()
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+        finally:
+            os._exit(0)
+
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    if hasattr(signal, 'SIGTERM'):  # Windows doesn't have SIGTERM
+        signal.signal(signal.SIGTERM, signal_handler)
+
     # Get server configuration
     config = get_server_config()
 
@@ -1165,9 +1340,6 @@ if __name__ == "__main__":
     preferred_port = config["port"]
     if not check_port_availability(preferred_port):
         fallback_port = get_fallback_port(preferred_port)
-        logger.warning(
-            f"Preferred port {preferred_port} not available, using fallback port {fallback_port}"
-        )
         config["port"] = fallback_port
 
     # Prepare uvicorn run arguments
@@ -1176,6 +1348,13 @@ if __name__ == "__main__":
         "host": config["host"],
         "port": config["port"],
         "reload": config["reload"],
+        # Add connection handling configuration
+        "timeout_keep_alive": config.get("timeout_keep_alive", 5),
+        "timeout_graceful_shutdown": config.get("timeout_graceful_shutdown", 30),
+        "limit_concurrency": config.get("limit_concurrency", 1000),
+        "limit_max_requests": config.get("limit_max_requests", 10000),
+        # Suppress access logs in production to reduce noise
+        "access_log": config.get("reload", False),  # Only show access logs in development
     }
 
     # Add SSL configuration if certificates are available
@@ -1196,17 +1375,8 @@ if __name__ == "__main__":
     ):
         run_args["ssl_keyfile"] = ssl_keyfile
         run_args["ssl_certfile"] = ssl_certfile
-        logger.info(
-            f"Starting HTTPS server on https://{config['host']}:{config['port']}"
-        )
-        logger.info(f"Using SSL certificate: {ssl_certfile}, key: {ssl_keyfile}")
+        logger.info(f"Starting HTTPS server on https://{config['host']}:{config['port']}")
     else:
-        logger.warning(
-            "SSL certificates not found or not configured. Starting HTTP server."
-        )
-        logger.warning(
-            "To enable HTTPS, ensure cert.pem and key.pem files exist, or set SSL_KEYFILE and SSL_CERTFILE environment variables."
-        )
         logger.info(f"Starting HTTP server on http://{config['host']}:{config['port']}")
 
     # Run the application
