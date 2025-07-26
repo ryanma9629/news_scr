@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import operator
+import sys
 from abc import ABC, abstractmethod
 from typing import Annotated, List, Literal, TypedDict
 
@@ -14,8 +15,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
+
+from crawler import ApifyCrawler
 
 load_dotenv()
 
@@ -714,14 +718,6 @@ class RefinementSummarization(Summarization):
 
 
 if __name__ == "__main__":
-    import asyncio
-    import sys
-
-    from langchain_core.documents import Document
-    from langchain_openai import AzureChatOpenAI
-
-    from crawler import ApifyCrawler
-
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -736,8 +732,6 @@ if __name__ == "__main__":
         )
 
         # Import embeddings for clustering
-        from langchain_openai import AzureOpenAIEmbeddings
-
         embeddings = AzureOpenAIEmbeddings(azure_deployment="text-embedding-3-small")
 
         apify_crawler = ApifyCrawler()

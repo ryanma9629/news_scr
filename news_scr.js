@@ -165,7 +165,7 @@ const Utils = {
         };
 
         // Validate LLM model
-        const supportedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'];
+        const supportedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'deepseek-chat', 'qwen-max', 'qwen-plus', 'qwen-turbo'];
         if (!supportedModels.includes(formData.llm_model)) {
             throw new Error(`LLM model "${formData.llm_model}" is currently unsupported. Please select one of: ${supportedModels.join(', ')}`);
         }
@@ -215,7 +215,7 @@ function initializeApp() {
 // Handle LLM model selection
 function handleLLMModelChange() {
     const selectedModel = $('#llm_model').val();
-    const supportedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'];
+    const supportedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'deepseek-chat', 'qwen-max', 'qwen-plus', 'qwen-turbo'];
 
     if (!supportedModels.includes(selectedModel)) {
         AlertManager.show(

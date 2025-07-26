@@ -151,13 +151,13 @@
                             <div class="mb-3">
                                 <label for="llm_model" class="form-label">LLM Model:</label>
                                 <select id="llm_model" name="llm_model" class="form-select">
-                                    <option value="gpt-4.1">GPT-4.1</option>
-                                    <option value="gpt-4o" selected>GPT-4o</option>
                                     <option value="gpt-4o-mini">GPT-4o Mini</option>
-                                    <option value="qwen-max" disabled>Qwen Max (Not Supported)</option>
-                                    <option value="qwen-plus" disabled>Qwen Plus (Not Supported)</option>
-                                    <option value="qwen-turbo" disabled>Qwen Turbo (Not Supported)</option>
-                                    <option value="deepseek-v3" disabled>DeepSeek V3 (Not Supported)</option>
+                                    <option value="gpt-4o" selected>GPT-4o</option>
+                                    <option value="gpt-4.1">GPT-4.1</option>
+                                    <option value="deepseek-chat">DeepSeek V3</option>
+                                    <option value="qwen-turbo">Qwen Turbo</option>
+                                    <option value="qwen-plus">Qwen Plus</option>
+                                    <option value="qwen-max">Qwen Max</option>
                                 </select>
                             </div>
 
@@ -238,16 +238,23 @@
                                                             Crawler Type:
                                                         </label>
                                                         <select id="crawler_type" class="form-select">
-                                                            <option value="playwright:adaptive" selected>Adaptive switching</option>
-                                                            <option value="playwright:firefox">Web browser (firefox)</option>
-                                                            <option value="playwright:chrome">Web browser (chrome)</option>
+                                                            <option value="playwright:adaptive" selected>Adaptive
+                                                                switching</option>
+                                                            <option value="playwright:firefox">Web browser (firefox)
+                                                            </option>
+                                                            <option value="playwright:chrome">Web browser (chrome)
+                                                            </option>
                                                             <option value="cheerio">Raw HTTP client</option>
                                                         </select>
                                                         <div class="form-text">
                                                             <small>
-                                                                <strong>Adaptive:</strong> Automatically switches between raw HTTP for static pages and Chrome browser (via Playwright) for dynamic pages |
-                                                                <strong>Web browsers:</strong> Headless web browser with anti-blocking measures enabled |
-                                                                <strong>Raw HTTP client:</strong> High-performance crawling mode that uses raw HTTP requests
+                                                                <strong>Adaptive:</strong> Automatically switches
+                                                                between raw HTTP for static pages and Chrome browser
+                                                                (via Playwright) for dynamic pages |
+                                                                <strong>Web browsers:</strong> Headless web browser with
+                                                                anti-blocking measures enabled |
+                                                                <strong>Raw HTTP client:</strong> High-performance
+                                                                crawling mode that uses raw HTTP requests
                                                             </small>
                                                         </div>
                                                     </div>
@@ -255,7 +262,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    
+
                                     <div class="row">
                                         <div class="col-md-6">
                                             <div class="card mb-3">
@@ -436,8 +443,10 @@
                                         <label for="summary_level" class="form-label">Summary Detail Level:</label>
                                         <select id="summary_level" class="form-select">
                                             <option value="brief">Brief - Concise overview with key points</option>
-                                            <option value="moderate" selected>Moderate - Balanced detail and context</option>
-                                            <option value="detailed">Detailed - Comprehensive coverage with nuances</option>
+                                            <option value="moderate" selected>Moderate - Balanced detail and context
+                                            </option>
+                                            <option value="detailed">Detailed - Comprehensive coverage with nuances
+                                            </option>
                                         </select>
                                     </div>
 

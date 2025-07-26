@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import sys
 from abc import ABC, abstractmethod
 from typing import List, Optional, Literal
 
@@ -130,9 +132,6 @@ class ApifyCrawler(Crawler):
 
 
 if __name__ == "__main__":
-    import asyncio
-    import sys
-
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 

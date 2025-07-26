@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sys
 from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
@@ -8,7 +9,11 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.vectorstores import InMemoryVectorStore, VectorStore
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
+
+from crawler import ApifyCrawler
 
 load_dotenv()
 
@@ -111,7 +116,18 @@ Passage:
         self.llm = llm
         self.emb = emb
 
-        self.tagging_llm = self.llm.with_structured_output(FinancialCrime, strict=True)
+        # Check if the LLM supports strict mode (Azure OpenAI models do, but Qwen/ChatTongyi doesn't)
+        try:
+            # Try with strict=True first (for models that support it like Azure OpenAI)
+            self.tagging_llm = self.llm.with_structured_output(FinancialCrime, strict=True)
+        except (TypeError, ValueError) as e:
+            # Fall back to without strict mode for models that don't support it (like Qwen)
+            if "strict" in str(e):
+                logger.info(f"LLM doesn't support strict mode, falling back to non-strict: {type(self.llm).__name__}")
+                self.tagging_llm = self.llm.with_structured_output(FinancialCrime)
+            else:
+                raise e
+        
         self.tagging_chain = self.TAGGING_PROMPT | self.tagging_llm
 
     def _validate_tags(self, tags: List) -> None:
@@ -328,14 +344,6 @@ manipulation of securities markets?
 
 
 if __name__ == "__main__":
-    import asyncio
-    import sys
-
-    from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-    from crawler import ApifyCrawler
-
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 

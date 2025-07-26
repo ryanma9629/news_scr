@@ -1,8 +1,10 @@
 import hashlib
 import logging
+import os
 import signal
 import socket
 import threading
+import uvicorn
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from functools import wraps
@@ -11,15 +13,17 @@ from typing import Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from langchain_core.documents import Document
+from langchain_community.chat_models.tongyi import ChatTongyi
+from langchain_deepseek import ChatDeepSeek
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from crawler import ApifyCrawler, CrawlerType
-from docstore import MongoStore
+from docstore import MongoStore, _mongo_manager
 from query import QAWithContext
 from summarization import MapReduceSummarization, RefinementSummarization, SUMMARY_LEVELS
 from tagging import FCTagging
@@ -38,6 +42,10 @@ SUPPORTED_LLM_DEPLOYMENTS = {
     "gpt-4.1": "gpt-4.1",
     "gpt-4o": "gpt-4o",
     "gpt-4o-mini": "gpt-4o-mini",
+    "deepseek-chat": "deepseek-chat",
+    "qwen-max": "qwen-max",
+    "qwen-plus": "qwen-plus",
+    "qwen-turbo": "qwen-turbo",
 }
 
 # Default LLM configuration
@@ -197,14 +205,31 @@ def init_llm_and_embeddings(deployment: str = "gpt-4o", model: str = "gpt-4o"):
             f"Unsupported LLM deployment: {deployment}. Supported deployments: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}"
         )
 
-    azure_deployment = SUPPORTED_LLM_DEPLOYMENTS[deployment]
-    llm = AzureChatOpenAI(azure_deployment=azure_deployment, model=model, temperature=0)
-    emb = AzureOpenAIEmbeddings(model="text-embedding-3-small")
+    # Initialize LLM based on provider
+    if deployment.startswith("deepseek"):
+        # DeepSeek models
+        llm = ChatDeepSeek(model=deployment, temperature=0)
+        # For DeepSeek, we'll still use Azure OpenAI embeddings as DeepSeek doesn't provide embeddings
+        emb = AzureOpenAIEmbeddings(model="text-embedding-3-small")
+    elif deployment.startswith("qwen"):
+        # Qwen (Tongyi) models - API key should be set via DASHSCOPE_API_KEY environment variable
+        api_key = os.getenv("DASHSCOPE_API_KEY")
+        if not api_key:
+            raise ValueError("DASHSCOPE_API_KEY environment variable is required for Qwen models")
+        llm = ChatTongyi(model=deployment, api_key=SecretStr(api_key))
+        # For Qwen, we'll still use Azure OpenAI embeddings as Qwen doesn't provide embeddings
+        emb = AzureOpenAIEmbeddings(model="text-embedding-3-small")
+    else:
+        # Azure OpenAI models
+        azure_deployment = SUPPORTED_LLM_DEPLOYMENTS[deployment]
+        llm = AzureChatOpenAI(azure_deployment=azure_deployment, model=model, temperature=0)
+        emb = AzureOpenAIEmbeddings(model="text-embedding-3-small")
+    
     return llm, emb
 
 
 def validate_llm_deployment(llm_model: str) -> str:
-    """Validate and return the correct Azure deployment name for the given LLM model."""
+    """Validate and return the correct deployment name for the given LLM model."""
     if llm_model not in SUPPORTED_LLM_DEPLOYMENTS:
         raise HTTPException(
             status_code=400,
@@ -407,7 +432,6 @@ async def lifespan(app: FastAPI):
     
     # Shutdown: Clean up resources
     try:
-        from docstore import _mongo_manager
         _mongo_manager.close()
     except Exception as e:
         logger.error(f"Error closing MongoDB connections: {e}")
@@ -445,7 +469,6 @@ def setup_app_configuration():
             return response
         except ConnectionResetError:
             # Return 499 status (Client Closed Request) - non-standard but commonly used
-            from fastapi.responses import Response
             return Response(status_code=499, content="Client closed connection")
         except Exception as e:
             # Log other unexpected errors at ERROR level
@@ -460,7 +483,6 @@ def setup_app_configuration():
 
 def get_server_config():
     """Get server configuration from environment or defaults."""
-    import os
 
     config = {
         "host": os.getenv("HOST", DEFAULT_HOST),
@@ -942,7 +964,7 @@ async def tag_news_content(request: TaggingRequest):
 
         # Validate LLM model
         try:
-            azure_deployment = validate_llm_deployment(request.llm_model)
+            deployment = validate_llm_deployment(request.llm_model)
         except HTTPException as e:
             return TaggingResponse(
                 success=False,
@@ -1021,7 +1043,7 @@ async def tag_news_content(request: TaggingRequest):
 
             if contents_to_tag:
                 # Initialize tagging components with the validated LLM model
-                llm, emb = init_llm_and_embeddings(azure_deployment, request.llm_model)
+                llm, emb = init_llm_and_embeddings(deployment, request.llm_model)
                 fc_tagging = FCTagging(llm, emb)
                 text_splitter = RecursiveCharacterTextSplitter(
                     chunk_size=DEFAULT_CHUNK_SIZE, chunk_overlap=DEFAULT_CHUNK_OVERLAP
@@ -1122,7 +1144,7 @@ async def summarize_news_content(request: SummaryRequest):
 
         # Validate LLM model
         try:
-            azure_deployment = validate_llm_deployment(request.llm_model)
+            deployment = validate_llm_deployment(request.llm_model)
         except HTTPException as e:
             return SummaryResponse(success=False, message=str(e.detail), summary=None)
 
@@ -1160,7 +1182,7 @@ async def summarize_news_content(request: SummaryRequest):
 
         try:
             # Initialize LLM and embeddings with the validated model
-            llm, emb = init_llm_and_embeddings(azure_deployment, request.llm_model)
+            llm, emb = init_llm_and_embeddings(deployment, request.llm_model)
 
             # Create documents from content
             docs = [
@@ -1215,7 +1237,7 @@ async def qa_endpoint(request: QARequest):
 
         # Validate LLM model
         try:
-            azure_deployment = validate_llm_deployment(request.llm_model)
+            deployment = validate_llm_deployment(request.llm_model)
         except HTTPException as e:
             return QAResponse(
                 success=False,
@@ -1253,7 +1275,7 @@ async def qa_endpoint(request: QARequest):
             )
 
         # Initialize LLM and embeddings using the validated model
-        llm, embeddings = init_llm_and_embeddings(azure_deployment, request.llm_model)
+        llm, embeddings = init_llm_and_embeddings(deployment, request.llm_model)
 
         # Convert contents to documents and split
         documents = [
@@ -1313,16 +1335,12 @@ async def health_check():
 app.mount("/", StaticFiles(directory=".", html=True), name="root")
 
 if __name__ == "__main__":
-    import os
-    import uvicorn
-
     # Setup graceful shutdown handling
     def signal_handler(signum, frame):
         """Handle graceful shutdown on SIGINT/SIGTERM."""
         try:
             # Cleanup sessions and connections
             session_manager.cleanup_expired_sessions()
-            from docstore import _mongo_manager
             _mongo_manager.close()
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sys
 from abc import ABC, abstractmethod
 from typing import List, Optional, TypedDict
 
@@ -9,7 +10,11 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.vectorstores import InMemoryVectorStore, VectorStore
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import START, StateGraph
+
+from crawler import ApifyCrawler
 
 load_dotenv()
 
@@ -321,14 +326,6 @@ class QAWithContext(QA):
 
 
 if __name__ == "__main__":
-    import asyncio
-    import sys
-
-    from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-    from crawler import ApifyCrawler
-
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 

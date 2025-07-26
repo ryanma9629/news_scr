@@ -6,6 +6,7 @@ This script generates self-signed SSL certificates for development and testing p
 The certificates are suitable for localhost HTTPS testing but should not be used in production.
 """
 
+import argparse
 import datetime
 import ipaddress
 
@@ -84,8 +85,6 @@ def generate_ssl_certificate(cert_file="cert.pem", key_file="key.pem", days=365)
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="Generate self-signed SSL certificates"
     )
