@@ -1,8 +1,15 @@
+# Example docker-compose configuration using published Docker image
+# This file demonstrates how to use a published image instead of building locally
+
 version: '3.8'
 
 services:
   adverse-news-screening:
-    build: .
+    # Use published image instead of building locally
+    image: your-dockerhub-username/adverse-news-screening:latest
+    # Uncomment the line below to use a specific version
+    # image: your-dockerhub-username/adverse-news-screening:v1.0.0
+    
     ports:
       - "8280:8280"
     environment:
@@ -65,3 +72,17 @@ volumes:
 networks:
   default:
     driver: bridge
+
+# Alternative registry examples:
+# 
+# For GitHub Container Registry:
+# image: ghcr.io/your-username/adverse-news-screening:latest
+#
+# For AWS ECR:
+# image: 123456789012.dkr.ecr.us-west-2.amazonaws.com/adverse-news-screening:latest
+#
+# For Google GCR:
+# image: gcr.io/your-project-id/adverse-news-screening:latest
+#
+# For Azure ACR:
+# image: your-registry.azurecr.io/adverse-news-screening:latest

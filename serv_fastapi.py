@@ -15,7 +15,7 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
-from crawler import ApifyCrawler
+from crawler import ApifyCrawler, CrawlerType
 from docstore import MongoStore
 from query import QAWithContext
 from summarization import MapReduceSummarization, RefinementSummarization
@@ -67,8 +67,8 @@ SEARCH_SUFFIX_MAP = {
     "everything": {"zh-CN": "", "zh-HK": "", "zh-TW": "", "en-US": "", "ja-JP": ""},
 }
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging - WARNING level for production
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Session storage
@@ -167,7 +167,6 @@ def handle_storage_operation(operation_func, operation_name: str, *args, **kwarg
     """Generic handler for storage operations with error handling."""
     try:
         result = operation_func(*args, **kwargs)
-        logger.info(f"Successfully {operation_name}")
         return result
     except Exception as e:
         logger.error(f"Error {operation_name}: {e}")
@@ -215,7 +214,6 @@ def cleanup_expired_sessions():
 
     for session_id in expired_sessions:
         del SESSION_STORE[session_id]
-        logger.info(f"Cleaned up expired session: {session_id}")
 
 
 # Consolidated validation and processing utilities
@@ -251,9 +249,7 @@ def get_contents_from_session_with_validation(
             missing_urls.append(url)
 
     if missing_urls:
-        logger.warning(
-            f"URLs not found in session for {operation_name}: {missing_urls}"
-        )
+        pass  # URLs not found in session
 
     if not contents:
         return (
@@ -302,7 +298,7 @@ def get_server_config():
     config = {
         "host": os.getenv("HOST", DEFAULT_HOST),
         "port": int(os.getenv("PORT", str(DEFAULT_PORT))),
-        "reload": os.getenv("RELOAD", "true").lower() == "true",
+        "reload": os.getenv("RELOAD", "false").lower() == "true",
         "ssl_keyfile": os.getenv("SSL_KEYFILE"),
         "ssl_certfile": os.getenv("SSL_CERTFILE"),
     }
@@ -355,7 +351,10 @@ class SearchRequest(BaseModel):
 
 class CrawlerRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to crawl")
-    crawler_type: str = Field(default="apify", description="Crawler type ('apify')")
+    crawler_type: CrawlerType = Field(
+        default="playwright:adaptive",
+        description="Crawler type ('cheerio', 'playwright:chrome', 'playwright:firefox', 'playwright:adaptive')",
+    )
     company_name: str = Field(..., description="Company name for storage")
     lang: str = Field(..., description="Language code for storage")
     contents_save: bool = Field(default=True, description="Save contents to storage")
@@ -650,9 +649,6 @@ async def crawl_news_content(request: CrawlerRequest):
 
         # Step 1: Load from storage if enabled
         if request.contents_load:
-            logger.info(
-                f"Loading contents from MongoDB (within {request.contents_load_days} days)..."
-            )
             contents_from_db = (
                 handle_storage_operation(
                     mongo_store.load_contents,
@@ -676,20 +672,21 @@ async def crawl_news_content(request: CrawlerRequest):
                 )
 
             urls_to_crawl = [url for url in request.urls if url not in stored_urls]
-            logger.info(
-                f"Found {len(contents_from_db)} URLs in MongoDB, {len(urls_to_crawl)} URLs to crawl"
-            )
         else:
             urls_to_crawl = request.urls
 
         # Step 2: Crawl remaining URLs
         crawled_contents = []
         if urls_to_crawl:
-            logger.info(f"Crawling {len(urls_to_crawl)} URLs")
+            logger.info(
+                f"Crawling {len(urls_to_crawl)} URLs with crawler type: {request.crawler_type}"
+            )
             crawler = ApifyCrawler()
 
             try:
-                documents = await crawler.get(urls_to_crawl)
+                documents = await crawler.get(
+                    urls_to_crawl, crawler_type=request.crawler_type
+                )
                 url_to_doc = {
                     doc.metadata.get("source", ""): doc
                     for doc in documents
@@ -757,9 +754,15 @@ async def crawl_news_content(request: CrawlerRequest):
 
     except Exception as e:
         logger.error(f"Crawler error: {e}")
-        failed_results = create_failed_result_responses(
-            request.urls, CrawlerResultResponse, f"System error: {e}"
-        )
+        failed_results = [
+            CrawlerResultResponse(
+                url=url,
+                success=False,
+                error=f"System error: {e}",
+                content=None,
+            )
+            for url in request.urls
+        ]
         return CrawlerResponse(
             success=False,
             results=failed_results,
@@ -938,9 +941,16 @@ async def tag_news_content(request: TaggingRequest):
 
     except Exception as e:
         logger.error(f"Tagging error: {e}")
-        failed_results = create_failed_result_responses(
-            request.urls, TaggingResultResponse, f"System error: {e}"
-        )
+        failed_results = [
+            TaggingResultResponse(
+                url=url,
+                success=False,
+                error=f"System error: {e}",
+                crime_type=None,
+                probability=None,
+            )
+            for url in request.urls
+        ]
         return TaggingResponse(
             success=False,
             results=failed_results,
@@ -965,20 +975,22 @@ async def summarize_news_content(request: SummaryRequest):
         try:
             azure_deployment = validate_llm_deployment(request.llm_model)
         except HTTPException as e:
-            return create_error_response(SummaryResponse, str(e.detail), summary=None)
+            return SummaryResponse(success=False, message=str(e.detail), summary=None)
 
         # Handle missing session ID
         if not session_id:
             logger.warning("No session ID provided in summary request")
-            return create_error_response(
-                SummaryResponse,
-                "Session is required. Please search for news and get content first, then try summarization again.",
+            return SummaryResponse(
+                success=False,
+                message="Session is required. Please search for news and get content first, then try summarization again.",
                 summary=None,
             )
 
         if not request.urls:
-            return create_error_response(
-                SummaryResponse, "No URLs provided for summarization", summary=None
+            return SummaryResponse(
+                success=False,
+                message="No URLs provided for summarization",
+                summary=None,
             )
 
         # Get contents from session and validate
@@ -987,9 +999,7 @@ async def summarize_news_content(request: SummaryRequest):
         )
 
         if error_msg:
-            return create_error_response(SummaryResponse, error_msg, summary=None)
-
-        logger.info(f"Found {len(contents)} contents to summarize")
+            return SummaryResponse(success=False, message=error_msg, summary=None)
 
         try:
             # Initialize LLM and embeddings with the validated model
@@ -1018,26 +1028,24 @@ async def summarize_news_content(request: SummaryRequest):
                 num_cluster=num_clusters,
             )
 
-            logger.info("Summarization completed successfully")
-
-            return create_success_response(
-                SummaryResponse,
-                f"Summary generated successfully, processed {len(contents)} articles",
+            return SummaryResponse(
+                success=True,
+                message=f"Summary generated successfully, processed {len(contents)} articles",
                 summary=summary,
             )
 
         except Exception as summarization_error:
             logger.error(f"Summarization execution failed: {summarization_error}")
-            return create_error_response(
-                SummaryResponse,
-                f"Summary generation failed: {summarization_error}",
+            return SummaryResponse(
+                success=False,
+                message=f"Summary generation failed: {summarization_error}",
                 summary=None,
             )
 
     except Exception as e:
         logger.error(f"Summary error: {e}")
-        return create_error_response(
-            SummaryResponse, f"System error: {e}", summary=None
+        return SummaryResponse(
+            success=False, message=f"System error: {e}", summary=None
         )
 
 
@@ -1055,9 +1063,9 @@ async def qa_endpoint(request: QARequest):
         try:
             azure_deployment = validate_llm_deployment(request.llm_model)
         except HTTPException as e:
-            return create_error_response(
-                QAResponse,
-                str(e.detail),
+            return QAResponse(
+                success=False,
+                message=str(e.detail),
                 question=request.question,
                 answer=None,
                 urls=[],
@@ -1068,9 +1076,9 @@ async def qa_endpoint(request: QARequest):
             session_id, request.urls, "Q&A"
         )
         if not is_valid:
-            return create_error_response(
-                QAResponse,
-                validation_error or "Validation failed",
+            return QAResponse(
+                success=False,
+                message=validation_error or "Validation failed",
                 question=request.question,
                 answer=None,
                 urls=[],
@@ -1087,12 +1095,7 @@ async def qa_endpoint(request: QARequest):
             )
 
         # Initialize LLM and embeddings using the validated model
-        llm, _ = init_llm_and_embeddings(azure_deployment, request.llm_model)
-
-        # Initialize embeddings with QA specific configuration
-        embeddings = AzureOpenAIEmbeddings(
-            azure_deployment="text-embedding-3-small", chunk_size=1000
-        )
+        llm, embeddings = init_llm_and_embeddings(azure_deployment, request.llm_model)
 
         # Convert contents to documents and split
         documents = [
@@ -1101,9 +1104,9 @@ async def qa_endpoint(request: QARequest):
             if content.get("text")
         ]
         if not documents:
-            return create_error_response(
-                QAResponse,
-                "No valid document content found for answering the question",
+            return QAResponse(
+                success=False,
+                message="No valid document content found for answering the question",
                 question=request.question,
                 answer=None,
                 urls=[],
@@ -1123,9 +1126,9 @@ async def qa_endpoint(request: QARequest):
             query=request.question, lang=request.lang, docs=split_docs
         )
 
-        return create_success_response(
-            QAResponse,
-            "Q&A processing successful",
+        return QAResponse(
+            success=True,
+            message="Q&A processing successful",
             question=result.get("question", request.question),
             answer=result.get("answer"),
             urls=result.get("urls", []),
@@ -1133,9 +1136,9 @@ async def qa_endpoint(request: QARequest):
 
     except Exception as e:
         logger.error(f"Error in QA processing: {str(e)}")
-        return create_error_response(
-            QAResponse,
-            f"Q&A processing failed: {str(e)}",
+        return QAResponse(
+            success=False,
+            message=f"Q&A processing failed: {str(e)}",
             question=request.question,
             answer=None,
             urls=[],
@@ -1145,162 +1148,7 @@ async def qa_endpoint(request: QARequest):
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "message": "News Search API is running"}
-
-
-# Session management endpoints
-@app.get("/api/session/{session_id}/status")
-async def get_session_status(session_id: str):
-    """Get session status."""
-    cleanup_expired_sessions()
-
-    session_data = get_session_data(session_id)
-    if not session_data:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    search_results = session_data.get("search_results", [])
-    web_contents = session_data.get("web_contents", {})
-    user_context = session_data.get("user_context", {})
-
-    created_at = session_data.get("created_at")
-    last_accessed = session_data.get("last_accessed")
-
-    return {
-        "session_id": session_id,
-        "created_at": created_at.isoformat() if created_at else None,
-        "last_accessed": last_accessed.isoformat() if last_accessed else None,
-        "search_results_count": len(search_results),
-        "web_contents_count": len(web_contents),
-        "user_context": user_context,
-        "urls_with_content": list(web_contents.keys()),
-    }
-
-
-@app.delete("/api/session/{session_id}")
-async def clear_session(session_id: str):
-    """Clear session data."""
-    if session_id in SESSION_STORE:
-        del SESSION_STORE[session_id]
-        return {"message": f"Session {session_id} cleared successfully"}
-    else:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-
-@app.get("/api/session/{session_id}/contents")
-async def get_session_contents(session_id: str):
-    """Get session contents."""
-    cleanup_expired_sessions()
-
-    session_data = get_session_data(session_id)
-    if not session_data:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    web_contents = session_data.get("web_contents", {})
-    return {
-        "session_id": session_id,
-        "contents": [
-            {"url": url, "text_length": len(text)} for url, text in web_contents.items()
-        ],
-    }
-
-
-@app.get("/api/debug/session")
-async def debug_session_info():
-    """Debug endpoint to check current session information."""
-    return {
-        "total_sessions": len(SESSION_STORE),
-        "sessions": {
-            session_id: {
-                "created_at": data.get("created_at").isoformat()
-                if data.get("created_at")
-                else None,
-                "last_accessed": data.get("last_accessed").isoformat()
-                if data.get("last_accessed")
-                else None,
-                "search_results_count": len(data.get("search_results", [])),
-                "web_contents_count": len(data.get("web_contents", {})),
-                "has_user_context": bool(data.get("user_context")),
-            }
-            for session_id, data in SESSION_STORE.items()
-        },
-    }
-
-
-@app.post("/api/debug/test-session")
-async def test_session_handling(request_data: dict):
-    """Debug endpoint to test session handling."""
-    session_id = request_data.get("session_id")
-    logger.info(f"Test session request - session_id: {session_id}")
-
-    if not session_id:
-        return {
-            "success": False,
-            "message": "No session ID provided",
-            "session_exists": False,
-        }
-
-    session_data = get_session_data(session_id)
-    session_exists = bool(session_data)
-
-    return {
-        "success": True,
-        "message": f"Session {session_id} {'exists' if session_exists else 'does not exist'}",
-        "session_exists": session_exists,
-        "session_data_keys": list(session_data.keys()) if session_data else [],
-        "web_contents_count": len(session_data.get("web_contents", {}))
-        if session_data
-        else 0,
-    }
-
-
-# Response utility functions
-def create_error_response(response_class, message: str, **kwargs):
-    """Create standardized error response."""
-    return response_class(success=False, message=message, **kwargs)
-
-
-def create_success_response(response_class, message: str, **kwargs):
-    """Create standardized success response."""
-    return response_class(success=True, message=message, **kwargs)
-
-
-def create_failed_result_responses(urls: List[str], result_class, error_message: str):
-    """Create failed result responses for multiple URLs."""
-    return [
-        result_class(
-            url=url,
-            success=False,
-            error=error_message,
-            **{
-                key: None
-                for key in result_class.__fields__
-                if key not in ["url", "success", "error"]
-            },
-        )
-        for url in urls
-    ]
-
-
-# Logging utilities
-def log_endpoint_start(endpoint_name: str, params: dict):
-    """Log the start of an endpoint execution."""
-    logger.info(f"Starting {endpoint_name} with params: {params}")
-
-
-def log_endpoint_success(endpoint_name: str, message: str):
-    """Log successful endpoint completion."""
-    logger.info(f"{endpoint_name} completed successfully: {message}")
-
-
-def log_endpoint_error(endpoint_name: str, error: Exception):
-    """Log endpoint error."""
-    logger.error(f"{endpoint_name} error: {str(error)}")
-
-
-def log_storage_operation(operation: str, success: bool, details: str = ""):
-    """Log storage operations with standardized format."""
-    status = "successful" if success else "failed"
-    logger.info(f"Storage {operation} {status}: {details}")
+    return {"status": "healthy", "message": "Adverse News Screening API is running."}
 
 
 # Mount root directory for direct file access (must be after all API routes)
@@ -1308,7 +1156,6 @@ app.mount("/", StaticFiles(directory=".", html=True), name="root")
 
 if __name__ == "__main__":
     import os
-
     import uvicorn
 
     # Get server configuration

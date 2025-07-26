@@ -1,6 +1,6 @@
-# News Scraper Docker Setup
+# Adverse News Screening Docker Setup
 
-This directory contains Docker configuration files for running the News Scraper application.
+This directory contains Docker configuration files for running the Adverse News Screening application.
 
 ## Quick Start
 
@@ -27,7 +27,7 @@ The following environment variables are **required** and must be set in your `.e
 
 - `AZURE_OPENAI_API_KEY`: Your Azure OpenAI API key
 - `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint URL
-- `AZURE_OPENAI_API_VERSION`: Azure OpenAI API version (default: 2024-02-01)
+- `OPENAI_API_VERSION`: OpenAI API version (default: 2025-03-01-preview)
 
 ### Optional Environment Variables
 
@@ -38,9 +38,9 @@ The following environment variables are **required** and must be set in your `.e
 
 ## Services
 
-### news-scraper
+### adverse-news-screening
 - **Port**: 8280
-- **Description**: Main FastAPI application serving the news scraper interface
+- **Description**: Main FastAPI application serving the adverse news screening interface
 - **Health Check**: HTTP GET request to `/health` endpoint
 
 ### mongodb
@@ -62,7 +62,7 @@ docker-compose up -d
 docker-compose logs -f
 
 # Specific service
-docker-compose logs -f news-scraper
+docker-compose logs -f adverse-news-screening
 docker-compose logs -f mongodb
 ```
 
@@ -78,7 +78,7 @@ docker-compose down -v
 
 ### Rebuild the application image:
 ```bash
-docker-compose build news-scraper
+docker-compose build adverse-news-screening
 ```
 
 ## Data Persistence
@@ -100,12 +100,12 @@ docker-compose exec mongodb mongosh
 
 ### Access application container:
 ```bash
-docker-compose exec news-scraper bash
+docker-compose exec adverse-news-screening bash
 ```
 
 ### Check application logs for errors:
 ```bash
-docker-compose logs news-scraper
+docker-compose logs adverse-news-screening
 ```
 
 ## Development
@@ -113,7 +113,7 @@ docker-compose logs news-scraper
 For development, you can override the command to enable auto-reload:
 
 ```bash
-docker-compose run --rm -p 8280:8280 news-scraper python serv_fastapi.py
+docker-compose run --rm -p 8280:8280 adverse-news-screening python serv_fastapi.py
 ```
 
 Or set `RELOAD=true` in your `.env` file.

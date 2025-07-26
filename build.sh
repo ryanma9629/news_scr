@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# News Scraper Docker Build Script
+# Adverse News Screening Docker Build Script
 
 set -e
 
-echo "🐳 Building News Scraper Docker Image..."
+echo "🐳 Building Adverse News Screening Docker Image..."
 
 # Check if .env file exists
 if [ ! -f .env ]; then

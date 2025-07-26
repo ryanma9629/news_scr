@@ -27,7 +27,7 @@ print_error() {
     echo -e "${RED}❌ $1${NC}"
 }
 
-echo "🐳 News Scraper Docker Setup Validation"
+echo "🐳 Adverse News Screening Docker Setup Validation"
 echo "========================================"
 
 # Check if Docker is running

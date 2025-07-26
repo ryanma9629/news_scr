@@ -4,7 +4,7 @@ version: '3.8'
 # Use this for production deployments with proper security and performance settings
 
 services:
-  news-scraper:
+  adverse-news-screening:
     build: 
       context: .
       dockerfile: Dockerfile
@@ -22,7 +22,7 @@ services:
       # Azure OpenAI configuration (required)
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
-      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-02-01}
+      - OPENAI_API_VERSION=${OPENAI_API_VERSION:-2025-03-01-preview}
       
       # Search API keys (optional)
       - BING_SUBSCRIPTION_KEY=${BING_SUBSCRIPTION_KEY}
