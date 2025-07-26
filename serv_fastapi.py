@@ -3,6 +3,7 @@ import logging
 import signal
 import socket
 import threading
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -397,9 +398,24 @@ def get_contents_from_session_with_validation(
 
 
 # Configuration utilities
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Cleanup any expired sessions
+    session_manager.cleanup_expired_sessions()
+    
+    yield
+    
+    # Shutdown: Clean up resources
+    try:
+        from docstore import _mongo_manager
+        _mongo_manager.close()
+    except Exception as e:
+        logger.error(f"Error closing MongoDB connections: {e}")
+
+
 def setup_app_configuration():
     """Setup FastAPI app with middleware and static files."""
-    app = FastAPI(title="News Search API", version="1.0.0")
+    app = FastAPI(title="News Search API", version="1.0.0", lifespan=lifespan)
 
     # Add CORS middleware with proper HTTPS support
     app.add_middleware(
@@ -438,21 +454,6 @@ def setup_app_configuration():
 
     # Mount static files
     app.mount("/static", StaticFiles(directory="."), name="static")
-
-    # Add application lifecycle events
-    @app.on_event("startup")
-    async def startup_event():
-        # Cleanup any expired sessions on startup
-        session_manager.cleanup_expired_sessions()
-
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        # Clean up resources
-        try:
-            from docstore import _mongo_manager
-            _mongo_manager.close()
-        except Exception as e:
-            logger.error(f"Error closing MongoDB connections: {e}")
 
     return app
 
