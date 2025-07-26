@@ -37,6 +37,10 @@ DEFAULT_STORAGE_DAYS = 90
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8280
 
+# Deployment configuration
+VI_DEPLOY = os.getenv("VI_DEPLOY", "false").lower() == "true"  # Set to True for VI deployment mode
+# VI_DEPLOY = "true"
+
 # Supported LLM deployments mapping
 SUPPORTED_LLM_DEPLOYMENTS = {
     "gpt-4.1": "gpt-4.1",
@@ -706,11 +710,28 @@ def get_search_engine(engine_name: str, lang: str):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def serve_index():
-    """Serve the index.html file."""
+async def serve_index(request: Request):
+    """Serve the index.html file with VI_DEPLOY configuration."""
     index_path = Path("index.html")
     if index_path.exists():
-        return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+        html_content = index_path.read_text(encoding="utf-8")
+        
+        # Inject VI_DEPLOY configuration and company_name if provided
+        company_name = request.query_params.get("company_name", "")
+        
+        # Add JavaScript configuration at the end of the body
+        config_script = f"""
+    <script>
+        // VI_DEPLOY configuration
+        window.VI_DEPLOY = {str(VI_DEPLOY).lower()};
+        window.URL_COMPANY_NAME = "{company_name}";
+    </script>
+</body>"""
+        
+        # Replace the closing body tag with our configuration
+        html_content = html_content.replace("</body>", config_script)
+        
+        return HTMLResponse(content=html_content)
     else:
         raise HTTPException(status_code=404, detail="index.html not found")
 

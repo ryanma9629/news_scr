@@ -193,6 +193,41 @@ const Utils = {
 $(document).ready(() => initializeApp());
 
 function initializeApp() {
+    // Handle VI_DEPLOY configuration
+    if (window.VI_DEPLOY) {
+        // Hide company name input section
+        $('#company_name_section').hide();
+        
+        // Set company name from URL parameter if provided
+        if (window.URL_COMPANY_NAME) {
+            $('#company_name').val(window.URL_COMPANY_NAME);
+            
+            // Add a notification showing the company name being analyzed
+            const notification = `
+                <div class="alert alert-info alert-dismissible fade show" role="alert">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>VI Deploy Mode:</strong> Analyzing news for <strong>${window.URL_COMPANY_NAME}</strong>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+            $('#div_ajax_info').html(notification).show();
+        } else {
+            // If no company name in URL, show error
+            console.warn('VI_DEPLOY mode enabled but no company_name provided in URL');
+            const errorNotification = `
+                <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>Warning:</strong> No company name provided in URL. Please add ?company_name=YourCompany to the URL.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+            $('#div_ajax_info').html(errorNotification).show();
+        }
+        
+        // Remove the required attribute since the field is hidden
+        $('#company_name').removeAttr('required');
+    }
+    
     // Event bindings
     const eventBindings = [
         ['#frm_web_search', 'submit', (e) => { e.preventDefault(); performSearch(); }],
