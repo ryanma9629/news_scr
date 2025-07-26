@@ -7,94 +7,37 @@
     <title>Adverse News Screening</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        /* Optimized typography scale */
-        :root {
-            --font-base: 0.85rem;
-            --font-small: 0.8rem;
-            --font-xs: 0.7rem;
-        }
-
-        body {
-            font-size: var(--font-base);
-        }
-
-        .table,
-        .table a,
-        .btn,
-        .form-control,
-        .form-select,
-        .form-label,
-        .form-check-label,
-        .alert {
-            font-size: var(--font-small);
-        }
-
-        .table thead th {
-            font-size: 0.82rem;
-        }
-
-        .modal-title {
-            font-size: 1.1rem;
-        }
-
-        small {
-            font-size: var(--font-xs);
-        }
-
-        /* UI improvements */
-        .search-form {
-            min-height: calc(100vh - 2rem);
-        }
-
-        .results-container {
-            background: #f8f9fa;
-        }
-
-        .modal-dialog {
-            max-width: 600px;
-        }
-
-        .btn-group .btn {
-            min-width: 120px;
-        }
-
-        /* Loading states */
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .spinner-border-sm {
-            width: 0.875rem;
-            height: 0.875rem;
-        }
-
-        /* Custom table header styling */
-        .table-dark-blue {
-            background-color: #1e3a8a !important;
-            color: white !important;
-        }
-
-        .table-dark-blue th {
-            background-color: #1e3a8a !important;
-            color: white !important;
-            border-color: #2563eb !important;
-        }
-    </style>
+    <link href="news_scr.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 </head>
 
 <body>
-    <div class="container-fluid">
-        <div class="row g-3 p-3">
+    <!-- Professional Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand d-flex align-items-center" href="#">
+                <i class="bi bi-shield-check me-2"></i>
+                <span>Adverse News Screening</span>
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text small">
+                    <i class="bi bi-cpu me-1"></i>
+                    LLM-Powered KYC/CDD
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid py-4">
+        <div class="row g-4">
             <!-- Search Form Column -->
             <div class="col-lg-3">
-                <div class="card h-100 search-form">
+                <div class="card search-sidebar">
                     <div class="card-header">
-                        <h5 class="card-title mb-0">
-                            <i class="bi bi-search me-2"></i>News Search
+                        <h5 class="card-title mb-0 d-flex align-items-center">
+                            <i class="bi bi-search me-2"></i>
+                            Search Configuration
                         </h5>
                     </div>
                     <div class="card-body">
@@ -162,8 +105,8 @@
                             </div>
 
                             <div class="d-grid">
-                                <button type="submit" class="btn btn-primary">
-                                    <i class="bi bi-search me-2"></i>Search News
+                                <button type="submit" class="btn btn-primary btn-lg transition-all">
+                                    <i class="bi bi-search me-2"></i>Start Analysis
                                 </button>
                             </div>
                         </form>
@@ -177,36 +120,49 @@
                 <div id="div_ajax_info" class="mb-3" style="display: none;"></div>
 
                 <!-- Search Results -->
-                <div id="div_search_res" class="card mb-3 results-container" style="display: none;">
+                <div id="div_search_res" class="card mb-4 shadow-sm" style="display: none;">
                     <!-- Dynamic search results table -->
                 </div>
 
                 <!-- Operation Buttons -->
-                <div id="div_operation" class="mb-3" style="display: none;">
-                    <div class="card">
+                <div id="div_operation" class="mb-4" style="display: none;">
+                    <div class="card shadow-sm">
                         <div class="card-header">
-                            <h6 class="card-title mb-0">
-                                <i class="bi bi-gear me-2"></i>Operations
+                            <h6 class="card-title mb-0 d-flex align-items-center">
+                                <i class="bi bi-gear me-2"></i>
+                                Processing Operations
                             </h6>
                         </div>
                         <div class="card-body">
-                            <div class="btn-group w-100" role="group">
-                                <button type="button" id="btn_crawler" class="btn btn-outline-primary disabled"
-                                    data-bs-toggle="modal" data-bs-target="#crawler_modal">
-                                    <i class="bi bi-download me-1"></i>Get Content
-                                </button>
-                                <button type="button" id="btn_tagging" class="btn btn-outline-primary disabled"
-                                    data-bs-toggle="modal" data-bs-target="#tagging_modal">
-                                    <i class="bi bi-tags me-1"></i>FC Tagging
-                                </button>
-                                <button type="button" id="btn_summary" class="btn btn-outline-primary disabled"
-                                    data-bs-toggle="modal" data-bs-target="#summary_modal">
-                                    <i class="bi bi-file-text me-1"></i>Summary
-                                </button>
-                                <button type="button" id="btn_qa" class="btn btn-outline-primary disabled"
-                                    data-bs-toggle="modal" data-bs-target="#qa_modal">
-                                    <i class="bi bi-question-circle me-1"></i>Q&A
-                                </button>
+                            <div class="row g-2">
+                                <div class="col-6 col-lg-3">
+                                    <button type="button" id="btn_crawler" class="btn btn-outline-primary w-100 disabled transition-all"
+                                        data-bs-toggle="modal" data-bs-target="#crawler_modal">
+                                        <i class="bi bi-download d-block mb-1"></i>
+                                        <small>Fetch Full-text</small>
+                                    </button>
+                                </div>
+                                <div class="col-6 col-lg-3">
+                                    <button type="button" id="btn_tagging" class="btn btn-outline-primary w-100 disabled transition-all"
+                                        data-bs-toggle="modal" data-bs-target="#tagging_modal">
+                                        <i class="bi bi-tags d-block mb-1"></i>
+                                        <small>Financial Crime Tagging</small>
+                                    </button>
+                                </div>
+                                <div class="col-6 col-lg-3">
+                                    <button type="button" id="btn_summary" class="btn btn-outline-primary w-100 disabled transition-all"
+                                        data-bs-toggle="modal" data-bs-target="#summary_modal">
+                                        <i class="bi bi-file-text d-block mb-1"></i>
+                                        <small>Summary</small>
+                                    </button>
+                                </div>
+                                <div class="col-6 col-lg-3">
+                                    <button type="button" id="btn_qa" class="btn btn-outline-primary w-100 disabled transition-all"
+                                        data-bs-toggle="modal" data-bs-target="#qa_modal">
+                                        <i class="bi bi-question-circle d-block mb-1"></i>
+                                        <small>Q&A</small>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -214,13 +170,13 @@
 
                 <!-- Content Crawler Modal -->
                 <div class="modal fade" id="crawler_modal" tabindex="-1" aria-labelledby="crawlerModalLabel">
-                    <div class="modal-dialog">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="crawlerModalLabel">
-                                    <i class="bi bi-download me-2"></i>Get Web Content
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content shadow">
+                            <div class="modal-header bg-primary text-white">
+                                <h5 class="modal-title d-flex align-items-center" id="crawlerModalLabel">
+                                    <i class="bi bi-download me-2"></i>Fetch Full-text
                                 </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
                                     aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
@@ -238,13 +194,13 @@
                                                             Crawler Type:
                                                         </label>
                                                         <select id="crawler_type" class="form-select">
-                                                            <option value="playwright:adaptive" selected>Adaptive
+                                                            <option value="cheerio" selected>Raw HTTP client</option>
+                                                            <option value="playwright:adaptive">Adaptive
                                                                 switching</option>
                                                             <option value="playwright:firefox">Web browser (firefox)
                                                             </option>
                                                             <option value="playwright:chrome">Web browser (chrome)
                                                             </option>
-                                                            <option value="cheerio">Raw HTTP client</option>
                                                         </select>
                                                         <div class="form-text">
                                                             <small>
@@ -325,12 +281,12 @@
                                     </div>
                                 </form>
                             </div>
-                            <div class="modal-footer">
-                                <button type="button" id="btn_crawler_submit" class="btn btn-primary"
+                            <div class="modal-footer bg-light">
+                                <button type="button" id="btn_crawler_submit" class="btn btn-primary transition-all"
                                     data-bs-dismiss="modal">
-                                    <i class="bi bi-play-fill me-1"></i>Start Crawling
+                                    <i class="bi bi-play-fill me-2"></i>Start
                                 </button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -338,13 +294,13 @@
 
                 <!-- FC Tagging Modal -->
                 <div class="modal fade" id="tagging_modal" tabindex="-1" aria-labelledby="taggingModalLabel">
-                    <div class="modal-dialog">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="taggingModalLabel">
-                                    <i class="bi bi-tags me-2"></i>FC Tagging
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content shadow">
+                            <div class="modal-header bg-primary text-white">
+                                <h5 class="modal-title d-flex align-items-center" id="taggingModalLabel">
+                                    <i class="bi bi-tags me-2"></i>Financial Crime Tagging
                                 </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
                                     aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
@@ -415,12 +371,12 @@
                                     </div>
                                 </form>
                             </div>
-                            <div class="modal-footer">
-                                <button type="button" id="btn_tagging_submit" class="btn btn-primary"
+                            <div class="modal-footer bg-light">
+                                <button type="button" id="btn_tagging_submit" class="btn btn-primary transition-all"
                                     data-bs-dismiss="modal">
-                                    <i class="bi bi-play-fill me-1"></i>Start Tagging
+                                    <i class="bi bi-play-fill me-2"></i>Start
                                 </button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -428,13 +384,13 @@
 
                 <!-- Summary Modal -->
                 <div class="modal fade" id="summary_modal" tabindex="-1" aria-labelledby="summaryModalLabel">
-                    <div class="modal-dialog">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="summaryModalLabel">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content shadow">
+                            <div class="modal-header bg-primary text-white">
+                                <h5 class="modal-title d-flex align-items-center" id="summaryModalLabel">
                                     <i class="bi bi-file-text me-2"></i>Summary Generation
                                 </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
                                     aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
@@ -464,7 +420,7 @@
                                                 checked
                                                 onchange="document.getElementById('summary_num_clus').disabled=!this.checked;">
                                             <label for="summary_clus_docs" class="form-check-label">
-                                                Cluster documents (reduces LLM calls)
+                                                Cluster documents beforehand (reduces LLM calls)
                                             </label>
                                         </div>
                                     </div>
@@ -479,12 +435,12 @@
                                     </div>
                                 </form>
                             </div>
-                            <div class="modal-footer">
-                                <button type="button" id="btn_summary_submit" class="btn btn-primary"
+                            <div class="modal-footer bg-light">
+                                <button type="button" id="btn_summary_submit" class="btn btn-primary transition-all"
                                     data-bs-dismiss="modal">
-                                    <i class="bi bi-play-fill me-1"></i>Generate Summary
+                                    <i class="bi bi-play-fill me-2"></i>Generate
                                 </button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -492,13 +448,13 @@
 
                 <!-- Q&A Modal -->
                 <div class="modal fade" id="qa_modal" tabindex="-1" aria-labelledby="qaModalLabel">
-                    <div class="modal-dialog">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="qaModalLabel">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content shadow">
+                            <div class="modal-header bg-primary text-white">
+                                <h5 class="modal-title d-flex align-items-center" id="qaModalLabel">
                                     <i class="bi bi-question-circle me-2"></i>Question & Answer
                                 </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
                                     aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
@@ -516,22 +472,22 @@
                                     </div>
                                 </form>
                             </div>
-                            <div class="modal-footer">
-                                <button type="button" id="btn_qa_submit" class="btn btn-primary"
+                            <div class="modal-footer bg-light">
+                                <button type="button" id="btn_qa_submit" class="btn btn-primary transition-all"
                                     data-bs-dismiss="modal">
-                                    <i class="bi bi-play-fill me-1"></i>Ask Question
+                                    <i class="bi bi-play-fill me-2"></i>Ask Question
                                 </button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Results Display Areas -->
-                <div id="div_summary_res" class="card mb-3" style="display: none;">
-                    <div class="card-header">
-                        <h6 class="card-title mb-0">
-                            <i class="bi bi-file-text me-2"></i>Summary Results
+                <div id="div_summary_res" class="card mb-4 shadow-sm" style="display: none;">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="card-title mb-0 d-flex align-items-center">
+                            <i class="bi bi-file-text me-2"></i>Summary
                         </h6>
                     </div>
                     <div class="card-body">
@@ -539,10 +495,10 @@
                     </div>
                 </div>
 
-                <div id="div_qa_res" class="card mb-3" style="display: none;">
-                    <div class="card-header">
-                        <h6 class="card-title mb-0">
-                            <i class="bi bi-question-circle me-2"></i>Q&A Results
+                <div id="div_qa_res" class="card mb-4 shadow-sm" style="display: none;">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="card-title mb-0 d-flex align-items-center">
+                            <i class="bi bi-question-circle me-2"></i>Q&A
                         </h6>
                     </div>
                     <div class="card-body">

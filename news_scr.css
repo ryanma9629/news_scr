@@ -1,0 +1,98 @@
+/* Professional News Screening Application Styles */
+
+/* Minimal professional enhancements */
+:root {
+    --font-base: 0.875rem;
+    --font-small: 0.8rem;
+    --font-xs: 0.75rem;
+    --primary-gradient: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+}
+
+body {
+    font-size: var(--font-base);
+    background-color: #f8f9fa;
+}
+
+.navbar-brand {
+    font-weight: 600;
+}
+
+.card {
+    border: none;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.card-header {
+    background: var(--primary-gradient);
+    color: white;
+    border: none;
+}
+
+.btn-primary {
+    background: var(--primary-gradient);
+    border: none;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #0a58ca 0%, #084298 100%);
+    transform: translateY(-1px);
+}
+
+.table thead th {
+    background: var(--primary-gradient);
+    color: white;
+    border: none;
+    font-size: var(--font-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+}
+
+.alert {
+    border: none;
+    border-left: 4px solid;
+}
+
+.alert-info {
+    border-left-color: #0dcaf0;
+}
+
+.alert-success {
+    border-left-color: #198754;
+}
+
+.alert-danger {
+    border-left-color: #dc3545;
+}
+
+.alert-warning {
+    border-left-color: #ffc107;
+}
+
+.search-sidebar {
+    height: calc(100vh - 200px);
+    overflow-y: auto;
+}
+
+.transition-all {
+    transition: all 0.2s ease;
+}
+
+.table,
+.btn,
+.form-control,
+.form-select,
+.form-label,
+.alert {
+    font-size: var(--font-small);
+}
+
+small {
+    font-size: var(--font-xs);
+}

@@ -340,7 +340,7 @@ function displaySearchResults(results) {
         </div>
         <div class="table-responsive">
             <table class="table table-striped table-hover" id="news-results-table">
-                <thead class="table-dark-blue">
+                <thead>
                     <tr>
                         <th scope="col" style="width: 5%">No.</th>
                         <th scope="col" style="width: 40%">News Title</th>
