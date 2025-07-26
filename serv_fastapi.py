@@ -39,7 +39,6 @@ DEFAULT_PORT = 8280
 
 # Deployment configuration
 VI_DEPLOY = os.getenv("VI_DEPLOY", "false").lower() == "true"  # Set to True for VI deployment mode
-# VI_DEPLOY = "true"
 
 # Supported LLM deployments mapping
 SUPPORTED_LLM_DEPLOYMENTS = {
@@ -169,10 +168,6 @@ class ThreadSafeSessionManager:
 # Global thread-safe session manager
 session_manager = ThreadSafeSessionManager()
 
-# Legacy session storage (deprecated - use session_manager)
-SESSION_STORE = {}
-SESSION_TIMEOUT_HOURS = DEFAULT_SESSION_TIMEOUT_HOURS
-
 
 # Common utility functions
 def require_session(strict: bool = True):
@@ -273,12 +268,6 @@ def load_from_storage_with_fallback(
     return contents, missing_urls
 
 
-def get_session_contents_safe(session_id: str) -> Dict[str, str]:
-    """Safely get web contents from session."""
-    session_data = get_session_data(session_id)
-    return session_data.get("web_contents", {})
-
-
 def handle_storage_operation(operation_func, operation_name: str, *args, **kwargs):
     """Generic handler for storage operations with error handling."""
     try:
@@ -304,81 +293,6 @@ def get_session_data(session_id: str) -> dict:
 def update_session_data(session_id: str, key: str, value):
     """Update session data for given session ID and key using thread-safe manager."""
     session_manager.update_session(session_id, key, value)
-
-
-def cleanup_expired_sessions():
-    """Remove expired sessions using thread-safe manager."""
-    return session_manager.cleanup_expired_sessions()
-
-
-# FastAPI Dependencies for Request-Scoped Resources
-
-def get_mongo_store(company_name: str = "default", lang: str = "en-US") -> MongoStore:
-    """Dependency to provide a MongoDB store instance with connection pooling.
-    
-    Args:
-        company_name: Company name for the store
-        lang: Language code for the store
-        
-    Returns:
-        MongoStore instance using the shared connection pool
-    """
-    return MongoStore(company_name=company_name, lang=lang)
-
-
-def get_session_manager() -> ThreadSafeSessionManager:
-    """Dependency to provide the thread-safe session manager."""
-    return session_manager
-
-
-def get_llm_components(deployment: str = DEFAULT_LLM_DEPLOYMENT):
-    """Dependency to provide LLM and embeddings components.
-    
-    Args:
-        deployment: LLM deployment name
-        
-    Returns:
-        Tuple of (llm, embeddings)
-    """
-    return init_llm_and_embeddings(deployment)
-
-
-class RequestContext:
-    """Request-scoped context for managing resources and state."""
-    
-    def __init__(self, session_id: Optional[str] = None):
-        self.session_id = session_id
-        self.session_manager = session_manager
-        self._mongo_store = None
-        self._llm_components = None
-    
-    def get_or_create_session(self) -> dict:
-        """Get or create session data for the request."""
-        if not self.session_id:
-            raise HTTPException(status_code=400, detail="Session ID is required")
-        
-        session_data = self.session_manager.get_session(self.session_id)
-        if not session_data:
-            session_data = self.session_manager.create_session(self.session_id)
-        
-        return session_data
-    
-    def get_mongo_store(self, company_name: str = "default", lang: str = "en-US") -> MongoStore:
-        """Get MongoStore instance for the request."""
-        if not self._mongo_store:
-            self._mongo_store = MongoStore(company_name=company_name, lang=lang)
-        return self._mongo_store
-    
-    def get_llm_components(self, deployment: str = DEFAULT_LLM_DEPLOYMENT):
-        """Get LLM components for the request."""
-        if not self._llm_components:
-            self._llm_components = init_llm_and_embeddings(deployment)
-        return self._llm_components
-
-
-def get_request_context(session_id: Optional[str] = None) -> RequestContext:
-    """Dependency to provide request-scoped context."""
-    return RequestContext(session_id=session_id)
 
 
 # Consolidated validation and processing utilities
@@ -479,9 +393,6 @@ def setup_app_configuration():
             logger.error(f"Unexpected error handling request: {str(e)}")
             raise
 
-    # Mount static files
-    app.mount("/static", StaticFiles(directory="."), name="static")
-
     return app
 
 
@@ -527,9 +438,6 @@ def get_fallback_port(preferred_port: int) -> int:
 
 
 app = setup_app_configuration()
-
-# Also mount current directory for direct file access (must be last)
-# This allows direct access to files like news_scr.js, index.html, etc.
 
 
 # Request models

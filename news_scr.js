@@ -1,6 +1,9 @@
 // JavaScript for News Search Application (news_scr.js)
 // Optimized version with improved efficiency and maintainability
 
+// Configuration constants
+const SUPPORTED_LLM_MODELS = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'deepseek-chat', 'qwen-max', 'qwen-plus', 'qwen-turbo'];
+
 // Global state management
 const AppState = {
     sessionId: null,
@@ -87,6 +90,15 @@ const AjaxHelper = {
         }
 
         return message;
+    },
+
+    createFailHandler(context, customHandler = null) {
+        return (xhr, status, error) => {
+            AlertManager.hide();
+            const message = this.handleError(xhr, status, context);
+            AlertManager.showError(`${context} Failed`, message);
+            if (customHandler) customHandler();
+        };
     }
 };
 
@@ -165,9 +177,8 @@ const Utils = {
         };
 
         // Validate LLM model
-        const supportedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'deepseek-chat', 'qwen-max', 'qwen-plus', 'qwen-turbo'];
-        if (!supportedModels.includes(formData.llm_model)) {
-            throw new Error(`LLM model "${formData.llm_model}" is currently unsupported. Please select one of: ${supportedModels.join(', ')}`);
+        if (!SUPPORTED_LLM_MODELS.includes(formData.llm_model)) {
+            throw new Error(`LLM model "${formData.llm_model}" is currently unsupported. Please select one of: ${SUPPORTED_LLM_MODELS.join(', ')}`);
         }
 
         return formData;
@@ -186,6 +197,15 @@ const Utils = {
             AlertManager.show('No news results found', 'warning');
             return false;
         }
+        return true;
+    },
+
+    createUrlToIndexMapping() {
+        const urlToIndex = {};
+        AppState.newsResults.forEach((result, index) => {
+            urlToIndex[result.url] = index;
+        });
+        return urlToIndex;
         return true;
     }
 };
@@ -250,11 +270,10 @@ function initializeApp() {
 // Handle LLM model selection
 function handleLLMModelChange() {
     const selectedModel = $('#llm_model').val();
-    const supportedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'deepseek-chat', 'qwen-max', 'qwen-plus', 'qwen-turbo'];
 
-    if (!supportedModels.includes(selectedModel)) {
+    if (!SUPPORTED_LLM_MODELS.includes(selectedModel)) {
         AlertManager.show(
-            `LLM model "${selectedModel}" is currently not supported. Please select one of: ${supportedModels.join(', ')}`,
+            `LLM model "${selectedModel}" is currently not supported. Please select one of: ${SUPPORTED_LLM_MODELS.join(', ')}`,
             'warning'
         );
         // Reset to default supported model
@@ -284,12 +303,7 @@ function performSearch() {
             )
         })
             .done(handleSearchSuccess)
-            .fail((xhr, status, error) => {
-                AlertManager.hide();
-                const message = AjaxHelper.handleError(xhr, status, 'Search');
-                AlertManager.showError('Search Failed', message);
-                hideSearchResults();
-            })
+            .fail(AjaxHelper.createFailHandler('Search', () => hideSearchResults()))
             .always(() => {
                 UIState.toggleFormInputs(false);
             });
@@ -411,13 +425,10 @@ function getNewsContent() {
             AlertManager.hide();
             handleContentSuccess(response);
         })
-        .fail((xhr, status, error) => {
-            AlertManager.hide();
-            const message = AjaxHelper.handleError(xhr, status, 'Content retrieval');
-            AlertManager.showError('Content Retrieval Failed', message);
+        .fail(AjaxHelper.createFailHandler('Content retrieval', () => {
             $('.content-status').html('<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>');
             UIState.disableButtons('#btn_tagging, #btn_summary, #btn_qa');
-        })
+        }))
         .always(() => {
             UIState.toggleSubmitButton('#btn_crawler_submit', false);
         });
@@ -429,10 +440,7 @@ function handleContentSuccess(response) {
         let failCount = 0;
 
         // Create URL to index mapping for efficiency
-        const urlToIndex = {};
-        AppState.newsResults.forEach((result, index) => {
-            urlToIndex[result.url] = index;
-        });
+        const urlToIndex = Utils.createUrlToIndexMapping();
 
         response.results.forEach(result => {
             const index = urlToIndex[result.url];
@@ -471,6 +479,9 @@ function handleContentSuccess(response) {
 function performTagging() {
     if (!Utils.validateResults() || !Utils.validateSession()) return;
 
+    // Remove existing tagging columns first
+    removeTaggingColumns();
+
     const requestData = {
         urls: AppState.getUrls(),
         company_name: $('#company_name').val().trim(),
@@ -504,6 +515,33 @@ function performTagging() {
         });
 }
 
+function removeTaggingColumns() {
+    const tableHeader = $('#news-results-table thead tr');
+    
+    // Remove Crime Type column header if exists
+    tableHeader.find('th:contains("Crime Type")').remove();
+    
+    // Remove Probability column header if exists
+    tableHeader.find('th:contains("Probability")').remove();
+    
+    // Remove corresponding data cells from all rows
+    $('#news-results-table tbody tr').each(function() {
+        const $row = $(this);
+        const cellCount = $row.find('td').length;
+        
+        // Remove last two cells if they are tagging-related (assuming they are crime-type and probability)
+        if (cellCount > 4) { // Original 4 columns: No., Title, Source, Content Status
+            $row.find('td.crime-type, td.probability').remove();
+            
+            // If no specific classes, remove the last two cells
+            if ($row.find('td').length > 4) {
+                $row.find('td:last').remove();
+                $row.find('td:last').remove();
+            }
+        }
+    });
+}
+
 function handleTaggingSuccess(response) {
     AlertManager.hide();
 
@@ -519,10 +557,7 @@ function handleTaggingSuccess(response) {
         }
 
         // Create URL to index mapping for efficiency
-        const urlToIndex = {};
-        AppState.newsResults.forEach((result, index) => {
-            urlToIndex[result.url] = index;
-        });
+        const urlToIndex = Utils.createUrlToIndexMapping();
 
         response.results.forEach(result => {
             const index = urlToIndex[result.url];
