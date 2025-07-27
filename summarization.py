@@ -98,7 +98,7 @@ SUMMARY_LEVELS = {
     },
     "detailed": {
         "description": "provide a comprehensive summary covering all significant aspects, background information, and nuanced details"
-    }
+    },
 }
 
 DEFAULT_SUMMARY_LEVEL = "moderate"
@@ -106,14 +106,16 @@ DEFAULT_SUMMARY_LEVEL = "moderate"
 
 def get_summary_description(summary_level: str) -> str:
     """Get the description for a given summary level.
-    
+
     Args:
         summary_level: The summary level ("brief", "moderate", "detailed")
-        
+
     Returns:
         Description string for the summary level
     """
-    return SUMMARY_LEVELS.get(summary_level, SUMMARY_LEVELS[DEFAULT_SUMMARY_LEVEL])["description"]
+    return SUMMARY_LEVELS.get(summary_level, SUMMARY_LEVELS[DEFAULT_SUMMARY_LEVEL])[
+        "description"
+    ]
 
 
 class Summarization(ABC):
@@ -135,7 +137,11 @@ class Summarization(ABC):
 
     @abstractmethod
     def summarize(
-        self, docs: List[Document], lang: str, summary_level: str = DEFAULT_SUMMARY_LEVEL, num_cluster: int = 0
+        self,
+        docs: List[Document],
+        lang: str,
+        summary_level: str = DEFAULT_SUMMARY_LEVEL,
+        num_cluster: int = 0,
     ) -> str:
         """Generate summary for given documents.
 
@@ -322,9 +328,9 @@ class MapReduceSummarization(Summarization):
 
         summary_description = get_summary_description(summary_level)
         reduce_prompt = self.reduce_prompt.partial(
-            lang=lang, 
+            lang=lang,
             summary_level=summary_level,
-            summary_description=summary_description
+            summary_description=summary_description,
         )
         reduce_chain = reduce_prompt | self.llm | StrOutputParser()
 
@@ -556,18 +562,18 @@ class RefinementSummarization(Summarization):
             Tuple of (initial_chain, refine_chain)
         """
         summary_description = get_summary_description(summary_level)
-        
+
         initial_prompt = self.initial_prompt.partial(
-            lang=lang, 
+            lang=lang,
             summary_level=summary_level,
-            summary_description=summary_description
+            summary_description=summary_description,
         )
         initial_chain = initial_prompt | self.llm | StrOutputParser()
 
         refine_prompt = self.refine_prompt.partial(
-            lang=lang, 
+            lang=lang,
             summary_level=summary_level,
-            summary_description=summary_description
+            summary_description=summary_description,
         )
         refine_chain = refine_prompt | self.llm | StrOutputParser()
 

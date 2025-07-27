@@ -386,10 +386,10 @@ function hideSearchResults() {
 }
 
 function clearPreviousResults() {
-    // Clear summary results
+    // Clear Summary
     $('#div_summary_res').empty().hide();
 
-    // Clear Q&A results  
+    // Clear Q&A  
     $('#div_qa_res').empty().hide();
 }
 
@@ -415,7 +415,7 @@ function getNewsContent() {
     AjaxHelper.makeRequest({
         url: '/api/crawler',
         data: requestData,
-        timeout: 120000,
+        timeout: 1800000, // 30 minutes timeout for content retrieval
         beforeSend: () => {
             UIState.toggleSubmitButton('#btn_crawler_submit', true);
             AlertManager.showLoading('Getting news full content, please wait...');
@@ -594,7 +594,7 @@ function handleTaggingSuccess(response) {
 function performSummary() {
     if (!Utils.validateResults() || !Utils.validateSession()) return;
 
-    // Clear previous summary results
+    // Clear previous Summary
     $('#div_summary_res').empty().hide();
 
     const requestData = {
@@ -645,7 +645,7 @@ function displaySummaryResult(summary) {
         <div class="p-3">
             <h5 class="mb-3">
                 <i class="bi bi-file-text me-2"></i>
-                Summary Results
+                Summary
             </h5>
             <div class="border rounded p-3 bg-white">
                 <div class="summary-content" style="white-space: pre-wrap; line-height: 1.6;">
@@ -766,7 +766,7 @@ function displayQAResult(question, answer, urls = []) {
             <div class="p-3">
                 <h5 class="mb-3">
                     <i class="bi bi-question-circle me-2"></i>
-                    Q&A Results
+                    Q&A
                 </h5>
                 <div class="qa-content">${qaHtml}</div>
             </div>

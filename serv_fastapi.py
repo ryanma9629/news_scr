@@ -4,19 +4,19 @@ import os
 import signal
 import socket
 import threading
-import uvicorn
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from langchain_core.documents import Document
 from langchain_community.chat_models.tongyi import ChatTongyi
+from langchain_core.documents import Document
 from langchain_deepseek import ChatDeepSeek
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -25,7 +25,11 @@ from pydantic import BaseModel, Field, SecretStr
 from crawler import ApifyCrawler, CrawlerType
 from docstore import MongoStore, _mongo_manager
 from query import QAWithContext
-from summarization import MapReduceSummarization, RefinementSummarization, SUMMARY_LEVELS
+from summarization import (
+    SUMMARY_LEVELS,
+    MapReduceSummarization,
+    RefinementSummarization,
+)
 from tagging import FCTagging
 from websearch import BingSearch, GoogleSerperNews
 
@@ -38,7 +42,9 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8280
 
 # Deployment configuration
-VI_DEPLOY = os.getenv("VI_DEPLOY", "false").lower() == "true"  # Set to True for VI deployment mode
+VI_DEPLOY = (
+    os.getenv("VI_DEPLOY", "false").lower() == "true"
+)  # Set to True for VI deployment mode
 
 # Supported LLM deployments mapping
 SUPPORTED_LLM_DEPLOYMENTS = {
@@ -84,10 +90,10 @@ SEARCH_SUFFIX_MAP = {
 # Configure logging - WARNING level for production
 logging.basicConfig(
     level=logging.WARNING,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-    ]
+    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -99,12 +105,12 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 class ThreadSafeSessionManager:
     """Thread-safe session management with automatic cleanup."""
-    
+
     def __init__(self, timeout_hours: int = DEFAULT_SESSION_TIMEOUT_HOURS):
         self._sessions = {}
         self._lock = threading.RLock()  # Re-entrant lock for nested operations
         self._timeout_hours = timeout_hours
-    
+
     def create_session(self, session_id: str) -> dict:
         """Create a new session with thread-safe initialization."""
         with self._lock:
@@ -117,7 +123,7 @@ class ThreadSafeSessionManager:
                     "user_context": {},
                 }
             return self._sessions[session_id]
-    
+
     def get_session(self, session_id: str) -> dict:
         """Get session data with thread-safe access."""
         with self._lock:
@@ -125,17 +131,17 @@ class ThreadSafeSessionManager:
             if session:
                 session["last_accessed"] = datetime.now()
             return session.copy()  # Return copy to prevent external modification
-    
+
     def update_session(self, session_id: str, key: str, value) -> None:
         """Update session data with thread-safe access."""
         with self._lock:
             # Ensure session exists
             if session_id not in self._sessions:
                 self.create_session(session_id)
-            
+
             self._sessions[session_id][key] = value
             self._sessions[session_id]["last_accessed"] = datetime.now()
-    
+
     def cleanup_expired_sessions(self) -> int:
         """Remove expired sessions and return count of removed sessions."""
         cutoff_time = datetime.now() - timedelta(hours=self._timeout_hours)
@@ -145,17 +151,17 @@ class ThreadSafeSessionManager:
                 for session_id, session_data in self._sessions.items()
                 if session_data.get("last_accessed", datetime.now()) < cutoff_time
             ]
-            
+
             for session_id in expired_sessions:
                 del self._sessions[session_id]
-            
+
             return len(expired_sessions)
-    
+
     def get_session_count(self) -> int:
         """Get total number of active sessions."""
         with self._lock:
             return len(self._sessions)
-    
+
     def remove_session(self, session_id: str) -> bool:
         """Remove a specific session."""
         with self._lock:
@@ -214,16 +220,20 @@ def init_llm_and_embeddings(deployment: str = "gpt-4o", model: str = "gpt-4o"):
         # Qwen (Tongyi) models - API key should be set via DASHSCOPE_API_KEY environment variable
         api_key = os.getenv("DASHSCOPE_API_KEY")
         if not api_key:
-            raise ValueError("DASHSCOPE_API_KEY environment variable is required for Qwen models")
+            raise ValueError(
+                "DASHSCOPE_API_KEY environment variable is required for Qwen models"
+            )
         llm = ChatTongyi(model=deployment, api_key=SecretStr(api_key))
         # For Qwen, we'll still use Azure OpenAI embeddings as Qwen doesn't provide embeddings
         emb = AzureOpenAIEmbeddings(model="text-embedding-3-small")
     else:
         # Azure OpenAI models
         azure_deployment = SUPPORTED_LLM_DEPLOYMENTS[deployment]
-        llm = AzureChatOpenAI(azure_deployment=azure_deployment, model=model, temperature=0)
+        llm = AzureChatOpenAI(
+            azure_deployment=azure_deployment, model=model, temperature=0
+        )
         emb = AzureOpenAIEmbeddings(model="text-embedding-3-small")
-    
+
     return llm, emb
 
 
@@ -345,9 +355,9 @@ def get_contents_from_session_with_validation(
 async def lifespan(app: FastAPI):
     # Startup: Cleanup any expired sessions
     session_manager.cleanup_expired_sessions()
-    
+
     yield
-    
+
     # Shutdown: Clean up resources
     try:
         _mongo_manager.close()
@@ -511,7 +521,8 @@ class SummaryRequest(BaseModel):
     )
     llm_model: str = Field(default="gpt-4o", description="LLM model to use")
     summary_level: str = Field(
-        default="moderate", description="Summary detail level ('brief', 'moderate', 'detailed')"
+        default="moderate",
+        description="Summary detail level ('brief', 'moderate', 'detailed')",
     )
     cluster_docs: bool = Field(
         default=True, description="Whether to cluster documents before summarization"
@@ -623,10 +634,10 @@ async def serve_index(request: Request):
     index_path = Path("index.html")
     if index_path.exists():
         html_content = index_path.read_text(encoding="utf-8")
-        
+
         # Inject VI_DEPLOY configuration and company_name if provided
         company_name = request.query_params.get("company_name", "")
-        
+
         # Add JavaScript configuration at the end of the body
         config_script = f"""
     <script>
@@ -635,10 +646,10 @@ async def serve_index(request: Request):
         window.URL_COMPANY_NAME = "{company_name}";
     </script>
 </body>"""
-        
+
         # Replace the closing body tag with our configuration
         html_content = html_content.replace("</body>", config_script)
-        
+
         return HTMLResponse(content=html_content)
     else:
         raise HTTPException(status_code=404, detail="index.html not found")
@@ -952,7 +963,6 @@ async def tag_news_content(request: TaggingRequest):
 
         # Step 2: Tag remaining URLs
         if urls_to_tag:
-
             # Get contents with fallback
             contents_to_tag, urls_without_content = load_from_storage_with_fallback(
                 mongo_store, urls_to_tag, session_id or ""
@@ -1196,11 +1206,11 @@ async def qa_endpoint(request: QARequest):
 
         if error_msg:
             return QAResponse(
-                success=False, 
-                message=error_msg, 
-                question=request.question, 
-                answer=None, 
-                urls=[]
+                success=False,
+                message=error_msg,
+                question=request.question,
+                answer=None,
+                urls=[],
             )
 
         # Initialize LLM and embeddings using the validated model
@@ -1278,7 +1288,7 @@ if __name__ == "__main__":
 
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
-    if hasattr(signal, 'SIGTERM'):  # Windows doesn't have SIGTERM
+    if hasattr(signal, "SIGTERM"):  # Windows doesn't have SIGTERM
         signal.signal(signal.SIGTERM, signal_handler)
 
     # Get server configuration
@@ -1302,7 +1312,9 @@ if __name__ == "__main__":
         "limit_concurrency": config.get("limit_concurrency", 1000),
         "limit_max_requests": config.get("limit_max_requests", 10000),
         # Suppress access logs in production to reduce noise
-        "access_log": config.get("reload", False),  # Only show access logs in development
+        "access_log": config.get(
+            "reload", False
+        ),  # Only show access logs in development
     }
 
     # Add SSL configuration if certificates are available
@@ -1323,7 +1335,9 @@ if __name__ == "__main__":
     ):
         run_args["ssl_keyfile"] = ssl_keyfile
         run_args["ssl_certfile"] = ssl_certfile
-        logger.info(f"Starting HTTPS server on https://{config['host']}:{config['port']}")
+        logger.info(
+            f"Starting HTTPS server on https://{config['host']}:{config['port']}"
+        )
     else:
         logger.info(f"Starting HTTP server on http://{config['host']}:{config['port']}")
 

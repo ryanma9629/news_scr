@@ -170,7 +170,7 @@
 
                 <!-- Content Crawler Modal -->
                 <div class="modal fade" id="crawler_modal" tabindex="-1" aria-labelledby="crawlerModalLabel">
-                    <div class="modal-dialog modal-lg">
+                    <div class="modal-dialog">
                         <div class="modal-content shadow">
                             <div class="modal-header bg-primary text-white">
                                 <h5 class="modal-title d-flex align-items-center" id="crawlerModalLabel">
@@ -194,7 +194,7 @@
                                                             Crawler Type:
                                                         </label>
                                                         <select id="crawler_type" class="form-select">
-                                                            <option value="cheerio" selected>Raw HTTP client</option>
+                                                            <option value="cheerio" selected>Raw HTTP client (fast)</option>
                                                             <option value="playwright:adaptive">Adaptive
                                                                 switching</option>
                                                             <option value="playwright:firefox">Web browser (firefox)
@@ -204,13 +204,13 @@
                                                         </select>
                                                         <div class="form-text">
                                                             <small>
+                                                                <strong>Raw HTTP client:</strong> High-performance
+                                                                crawling mode that uses raw HTTP requests<br>
                                                                 <strong>Adaptive:</strong> Automatically switches
                                                                 between raw HTTP for static pages and Chrome browser
-                                                                (via Playwright) for dynamic pages |
+                                                                (via Playwright) for dynamic pages <br>
                                                                 <strong>Web browsers:</strong> Headless web browser with
-                                                                anti-blocking measures enabled |
-                                                                <strong>Raw HTTP client:</strong> High-performance
-                                                                crawling mode that uses raw HTTP requests
+                                                                anti-blocking measures enabled
                                                             </small>
                                                         </div>
                                                     </div>
@@ -294,7 +294,7 @@
 
                 <!-- FC Tagging Modal -->
                 <div class="modal fade" id="tagging_modal" tabindex="-1" aria-labelledby="taggingModalLabel">
-                    <div class="modal-dialog modal-lg">
+                    <div class="modal-dialog">
                         <div class="modal-content shadow">
                             <div class="modal-header bg-primary text-white">
                                 <h5 class="modal-title d-flex align-items-center" id="taggingModalLabel">
@@ -384,7 +384,7 @@
 
                 <!-- Summary Modal -->
                 <div class="modal fade" id="summary_modal" tabindex="-1" aria-labelledby="summaryModalLabel">
-                    <div class="modal-dialog modal-lg">
+                    <div class="modal-dialog">
                         <div class="modal-content shadow">
                             <div class="modal-header bg-primary text-white">
                                 <h5 class="modal-title d-flex align-items-center" id="summaryModalLabel">
@@ -448,7 +448,7 @@
 
                 <!-- Q&A Modal -->
                 <div class="modal fade" id="qa_modal" tabindex="-1" aria-labelledby="qaModalLabel">
-                    <div class="modal-dialog modal-lg">
+                    <div class="modal-dialog">
                         <div class="modal-content shadow">
                             <div class="modal-header bg-primary text-white">
                                 <h5 class="modal-title d-flex align-items-center" id="qaModalLabel">
