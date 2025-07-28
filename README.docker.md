@@ -28,6 +28,8 @@ The following environment variables are **required** and must be set in your `.e
 - `AZURE_OPENAI_API_KEY`: Your Azure OpenAI API key
 - `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint URL
 - `OPENAI_API_VERSION`: OpenAI API version (default: 2025-03-01-preview)
+- `DEEPSEEK_API_KEY`: Your DeepSeek API key
+- `DASHSCOPE_API_KEY`: Your Tongyi Qwen (DashScope) API key
 
 ### Optional Environment Variables
 

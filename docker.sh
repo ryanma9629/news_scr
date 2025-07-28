@@ -51,7 +51,7 @@ setup_env() {
         print_warning ".env file not found. Creating from template..."
         cp .env.example .env
         print_info "Please edit .env file with your actual API keys before starting the application."
-        print_info "Required: AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT"
+        print_info "Required: AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, DEEPSEEK_API_KEY, DASHSCOPE_API_KEY"
         return 1
     fi
     return 0

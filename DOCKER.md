@@ -7,7 +7,10 @@ This guide provides comprehensive instructions for deploying the Adverse News Sc
 - Docker Engine (version 20.10 or higher)
 - Docker Compose (version 2.0 or higher)
 - At least 4GB of available RAM
-- Azure OpenAI API access (required)
+- API access to all required LLM providers:
+  - Azure OpenAI API access (required)
+  - DeepSeek API access (required)
+  - Tongyi Qwen (DashScope) API access (required)
 
 ## 🚀 Quick Start
 
@@ -39,6 +42,8 @@ nano .env
 - `AZURE_OPENAI_API_KEY`: Your Azure OpenAI API key
 - `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint URL
 - `OPENAI_API_VERSION`: API version (default: 2025-03-01-preview)
+- `DEEPSEEK_API_KEY`: Your DeepSeek API key
+- `DASHSCOPE_API_KEY`: Your Tongyi Qwen (DashScope) API key
 
 ### 3. Access Application
 
