@@ -18,7 +18,7 @@ This guide provides comprehensive instructions for deploying the Adverse News Sc
 
 ```bash
 # Navigate to the project directory
-cd /home/sas/work/news_scr
+cd /path/to/news_scr
 
 # Make management scripts executable
 chmod +x scripts/docker.sh scripts/build.sh
@@ -175,7 +175,7 @@ https://localhost:8280
 
 For production, enable MongoDB authentication:
 
-1. **Uncomment authentication variables** in `docker-compose.prod.yml`:
+1. **Uncomment authentication variables** in `docker/docker-compose.prod.yml`:
 ```yaml
 environment:
   - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME}
@@ -229,7 +229,7 @@ docker-compose -f docker/docker-compose.yml exec mongodb mongorestore /tmp/backu
 sudo lsof -i :8280
 sudo lsof -i :27017
 
-# Change port in docker-compose.yml or stop conflicting service
+# Change port in docker/docker-compose.yml or stop conflicting service
 ```
 
 2. **MongoDB connection issues**:
@@ -315,7 +315,7 @@ docker-compose -f docker/docker-compose.yml exec adverse-news-screening bash
 docker-compose -f docker/docker-compose.yml exec adverse-news-screening python -c "import sys; print(sys.path)"
 
 # Test database connection
-docker-compose -f docker/docker-compose.yml exec adverse-news-screening python -c "from docstore import MongoStore; store = MongoStore('test', 'en'); print('Connection OK')"
+docker-compose -f docker/docker-compose.yml exec adverse-news-screening python -c "from app.docstore import MongoStore; store = MongoStore('test', 'en'); print('Connection OK')"
 ```
 
 ## 📊 Monitoring
@@ -352,7 +352,7 @@ Scale the application service:
 docker-compose -f docker/docker-compose.yml up -d --scale adverse-news-screening=3
 
 # Use load balancer (nginx example)
-# Add nginx service to docker-compose.yml
+# Add nginx service to docker/docker-compose.yml
 ```
 
 ### Performance Tuning
@@ -547,13 +547,13 @@ echo "✅ Successfully pushed ${REGISTRY}/${IMAGE_NAME}:${VERSION}"
 
 Make it executable and use it:
 ```bash
-chmod +x build-and-push.sh
+chmod +x scripts/build-and-push.sh
 
 # Push with latest tag
-./build-and-push.sh
+./scripts/build-and-push.sh
 
 # Push with specific version
-./build-and-push.sh v1.0.0
+./scripts/build-and-push.sh v1.0.0
 ```
 
 ### Using Published Images
