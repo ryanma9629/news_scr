@@ -21,11 +21,11 @@ This guide provides comprehensive instructions for deploying the Adverse News Sc
 cd /home/sas/work/news_scr
 
 # Make management scripts executable
-chmod +x docker.sh build.sh
+chmod +x scripts/docker.sh scripts/build.sh
 
 # Use the management script for easy deployment
-./docker.sh build
-./docker.sh start
+./scripts/docker.sh build
+./scripts/docker.sh start
 ```
 
 ### 2. Configure Environment
@@ -51,47 +51,62 @@ nano .env
 - **API Health Check**: http://localhost:8280/api/health
 - **MongoDB**: localhost:27017
 
+## 🏗 Services Overview
+
+### adverse-news-screening
+- **Port**: 8280
+- **Description**: Main FastAPI application serving the adverse news screening interface
+- **Health Check**: HTTP GET request to `/api/health` endpoint
+- **Features**: Web search, content crawling, tagging, summarization, Q&A
+
+### mongodb
+- **Port**: 27017
+- **Description**: MongoDB database for storing scraped content and tags
+- **Database**: `adverse_news_screening`
+- **Collections**: `web_contents`, `fc_tags`
+- **Persistence**: Data stored in Docker volume `mongodb_data`
+
 ## 📁 Docker Files Overview
 
 | File | Purpose |
 |------|---------|
-| `Dockerfile` | Main application container definition |
-| `docker-compose.yml` | Development deployment configuration |
-| `docker-compose.prod.yml` | Production deployment configuration |
+| `docker/Dockerfile` | Main application container definition |
+| `docker/docker-compose.yml` | Development deployment configuration |
+| `docker/docker-compose.prod.yml` | Production deployment configuration |
 | `.dockerignore` | Files excluded from Docker build context |
-| `docker.sh` | Management script for common operations |
-| `build.sh` | Simple build script |
+| `scripts/docker.sh` | Management script for common operations |
+| `scripts/build.sh` | Simple build script |
 | `.env.example` | Environment variables template |
 
 ## 🛠 Management Commands
 
-Use the `docker.sh` script for easy management:
+Use the `scripts/docker.sh` script for easy management:
 
 ```bash
 # Build the application
-./docker.sh build
+./scripts/docker.sh build
 
 # Start services
-./docker.sh start
+./scripts/docker.sh start
 
 # Stop services
-./docker.sh stop
+./scripts/docker.sh stop
 
 # Restart services
-./docker.sh restart
+./scripts/docker.sh restart
 
 # View logs (all services)
-./docker.sh logs
+./scripts/docker.sh logs
 
 # View logs (specific service)
-./docker.sh logs adverse-news-screening
-./docker.sh logs mongodb
+./scripts/docker.sh logs adverse-news-screening
+./scripts/docker.sh logs mongodb
 
 # Check status
-./docker.sh status
+./scripts/docker.sh status
 
 # Clean up (removes all data!)
-./docker.sh clean
+./scripts/docker.sh clean
 ```
 
 ## 🔧 Manual Docker Commands
@@ -100,20 +115,20 @@ If you prefer manual control:
 
 ```bash
 # Build and start
-docker-compose up -d
+docker-compose -f docker/docker-compose.yml up -d
 
 # View logs
-docker-compose logs -f
+docker-compose -f docker/docker-compose.yml logs -f
 
 # Stop services
-docker-compose down
+docker-compose -f docker/docker-compose.yml down
 
 # Rebuild specific service
-docker-compose build adverse-news-screening
+docker-compose -f docker/docker-compose.yml build adverse-news-screening
 
 # Access service shell
-docker-compose exec adverse-news-screening bash
-docker-compose exec mongodb mongosh
+docker-compose -f docker/docker-compose.yml exec adverse-news-screening bash
+docker-compose -f docker/docker-compose.yml exec mongodb mongosh
 ```
 
 ## 🏭 Production Deployment
@@ -122,10 +137,10 @@ For production environments, use the production configuration:
 
 ```bash
 # Use production compose file
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f docker/docker-compose.prod.yml up -d
 
 # Or with override
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
 ```
 
 ### Production Features
@@ -174,6 +189,16 @@ MONGO_ROOT_PASSWORD=your_secure_password
 MONGO_URI=mongodb://admin:your_secure_password@mongodb:27017/adverse_news_screening?authSource=admin
 ```
 
+### Container Security
+
+Additional security considerations:
+
+- **Non-root user**: The application runs as a non-root user inside the container for enhanced security
+- **Read-only volumes**: SSL certificates are mounted as read-only volumes
+- **Environment isolation**: Environment variables should be kept secure and not committed to version control
+- **Docker secrets**: Consider using Docker secrets in production environments for sensitive data
+- **Network isolation**: Services communicate through Docker's internal network
+
 ## 🗃 Data Management
 
 ### Database Persistence
@@ -186,12 +211,12 @@ MongoDB data is stored in Docker volumes:
 
 ```bash
 # Backup database
-docker-compose exec mongodb mongodump --out /tmp/backup
-docker cp $(docker-compose ps -q mongodb):/tmp/backup ./backup
+docker-compose -f docker/docker-compose.yml exec mongodb mongodump --out /tmp/backup
+docker cp $(docker-compose -f docker/docker-compose.yml ps -q mongodb):/tmp/backup ./backup
 
 # Restore database
-docker cp ./backup $(docker-compose ps -q mongodb):/tmp/backup
-docker-compose exec mongodb mongorestore /tmp/backup
+docker cp ./backup $(docker-compose -f docker/docker-compose.yml ps -q mongodb):/tmp/backup
+docker-compose -f docker/docker-compose.yml exec mongodb mongorestore /tmp/backup
 ```
 
 ## 🐛 Troubleshooting
@@ -238,7 +263,7 @@ docker stats
 Monitor service health:
 ```bash
 # Check all services
-docker-compose ps
+docker-compose -f docker/docker-compose.yml ps
 
 # Manual health check
 curl http://localhost:8280/api/health
@@ -248,13 +273,13 @@ curl http://localhost:8280/api/health
 
 ```bash
 # Follow all logs
-docker-compose logs -f
+docker-compose -f docker/docker-compose.yml logs -f
 
 # Filter by service
-docker-compose logs -f adverse-news-screening | grep ERROR
+docker-compose -f docker/docker-compose.yml logs -f adverse-news-screening | grep ERROR
 
 # Check MongoDB operations
-docker-compose logs mongodb | grep -E "(connection|error)"
+docker-compose -f docker/docker-compose.yml logs mongodb | grep -E "(connection|error)"
 ```
 
 ## 🔧 Development
@@ -277,20 +302,20 @@ For development with live reload:
 
 ```bash
 # Mount source code
-docker-compose run --rm -p 8280:8280 -v $(pwd):/app adverse-news-screening python serv_fastapi.py
+docker-compose -f docker/docker-compose.yml run --rm -p 8280:8280 -v $(pwd):/app adverse-news-screening python serv_fastapi.py
 ```
 
 ### Debugging
 
 ```bash
 # Access application container
-docker-compose exec adverse-news-screening bash
+docker-compose -f docker/docker-compose.yml exec adverse-news-screening bash
 
 # Check Python environment
-docker-compose exec adverse-news-screening python -c "import sys; print(sys.path)"
+docker-compose -f docker/docker-compose.yml exec adverse-news-screening python -c "import sys; print(sys.path)"
 
 # Test database connection
-docker-compose exec adverse-news-screening python -c "from docstore import MongoStore; store = MongoStore('test', 'en'); print('Connection OK')"
+docker-compose -f docker/docker-compose.yml exec adverse-news-screening python -c "from docstore import MongoStore; store = MongoStore('test', 'en'); print('Connection OK')"
 ```
 
 ## 📊 Monitoring
@@ -324,7 +349,7 @@ Scale the application service:
 
 ```bash
 # Scale to 3 instances
-docker-compose up -d --scale adverse-news-screening=3
+docker-compose -f docker/docker-compose.yml up -d --scale adverse-news-screening=3
 
 # Use load balancer (nginx example)
 # Add nginx service to docker-compose.yml
@@ -343,14 +368,14 @@ docker-compose up -d --scale adverse-news-screening=3
 
 ```bash
 # Update images
-docker-compose pull
-docker-compose up -d
+docker-compose -f docker/docker-compose.yml pull
+docker-compose -f docker/docker-compose.yml up -d
 
 # Clean up unused resources
 docker system prune -a
 
 # Backup configuration
-tar -czf backup-$(date +%Y%m%d).tar.gz .env docker-compose*.yml mongo-init/
+tar -czf backup-$(date +%Y%m%d).tar.gz .env docker/docker-compose*.yml config/
 ```
 
 ### Updates
@@ -373,13 +398,13 @@ To create a Docker image for your Adverse News Screening application:
 
 ```bash
 # Build the image with a specific tag
-docker build -t adverse-news-screening:latest .
+docker build -f docker/Dockerfile -t adverse-news-screening:latest .
 
 # Build with version tag
-docker build -t adverse-news-screening:v1.0.0 .
+docker build -f docker/Dockerfile -t adverse-news-screening:v1.0.0 .
 
 # Build with custom registry prefix
-docker build -t your-registry.com/adverse-news-screening:latest .
+docker build -f docker/Dockerfile -t your-registry.com/adverse-news-screening:latest .
 ```
 
 ### Tag Images for Remote Repository
@@ -501,7 +526,7 @@ IMAGE_NAME="adverse-news-screening"
 VERSION=${1:-latest}
 
 echo "🔨 Building Docker image..."
-docker build -t ${IMAGE_NAME}:${VERSION} .
+docker build -f docker/Dockerfile -t ${IMAGE_NAME}:${VERSION} .
 
 echo "🏷️  Tagging image for registry..."
 docker tag ${IMAGE_NAME}:${VERSION} ${REGISTRY}/${IMAGE_NAME}:${VERSION}
@@ -559,7 +584,7 @@ For compatibility across different architectures (ARM64, AMD64):
 docker buildx create --name multiarch --use
 
 # Build for multiple platforms
-docker buildx build --platform linux/amd64,linux/arm64 \
+docker buildx build -f docker/Dockerfile --platform linux/amd64,linux/arm64 \
   -t your-registry/adverse-news-screening:latest \
   --push .
 ```
