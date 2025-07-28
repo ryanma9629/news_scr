@@ -25,7 +25,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY app/ ./app/
+COPY static/ ./static/
+COPY config/ ./config/
 
 # Create a non-root user for security
 RUN adduser --disabled-password --gecos '' --shell /bin/bash appuser && \
@@ -40,4 +42,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8280/api/health || exit 1
 
 # Default command
-CMD ["python", "serv_fastapi.py"]
+CMD ["python", "-m", "app.main"]

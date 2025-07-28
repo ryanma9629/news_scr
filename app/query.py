@@ -14,7 +14,7 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import START, StateGraph
 
-from crawler import ApifyCrawler
+from .crawler import ApifyCrawler
 
 load_dotenv()
 

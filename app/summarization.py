@@ -19,7 +19,7 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
-from crawler import ApifyCrawler
+from .crawler import ApifyCrawler
 
 load_dotenv()
 

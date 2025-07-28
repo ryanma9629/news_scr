@@ -22,16 +22,16 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field, SecretStr
 
-from crawler import ApifyCrawler, CrawlerType
-from docstore import MongoStore, _mongo_manager
-from query import QAWithContext
-from summarization import (
+from .crawler import ApifyCrawler, CrawlerType
+from .docstore import MongoStore, _mongo_manager
+from .query import QAWithContext
+from .summarization import (
     SUMMARY_LEVELS,
     MapReduceSummarization,
     RefinementSummarization,
 )
-from tagging import FCTagging
-from websearch import BingSearch, GoogleSerperNews
+from .tagging import FCTagging
+from .websearch import BingSearch, GoogleSerperNews
 
 # Configuration constants
 DEFAULT_CHUNK_SIZE = 1000
@@ -87,9 +87,9 @@ SEARCH_SUFFIX_MAP = {
     "everything": {"zh-CN": "", "zh-HK": "", "zh-TW": "", "en-US": "", "ja-JP": ""},
 }
 
-# Configure logging - WARNING level for production
+# Configure logging - INFO level for debugging SSL issues
 logging.basicConfig(
-    level=logging.WARNING,
+    level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
@@ -631,7 +631,8 @@ def get_search_engine(engine_name: str, lang: str):
 @app.get("/", response_class=HTMLResponse)
 async def serve_index(request: Request):
     """Serve the index.html file with VI_DEPLOY configuration."""
-    index_path = Path("index.html")
+    project_root = Path(__file__).parent.parent  # Go up from app/ to project root
+    index_path = project_root / "static" / "index.html"
     if index_path.exists():
         html_content = index_path.read_text(encoding="utf-8")
 
@@ -1270,8 +1271,10 @@ async def health_check():
     return {"status": "healthy", "message": "Adverse News Screening API is running."}
 
 
-# Mount root directory for direct file access (must be after all API routes)
-app.mount("/", StaticFiles(directory=".", html=True), name="root")
+# Mount static files directory for CSS, JS, and HTML
+project_root = Path(__file__).parent.parent  # Go up from app/ to project root
+static_dir = project_root / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 if __name__ == "__main__":
     # Setup graceful shutdown handling
@@ -1302,7 +1305,7 @@ if __name__ == "__main__":
 
     # Prepare uvicorn run arguments
     run_args = {
-        "app": "serv_fastapi:app",
+        "app": "app.main:app",
         "host": config["host"],
         "port": config["port"],
         "reload": config["reload"],
@@ -1322,10 +1325,21 @@ if __name__ == "__main__":
     ssl_certfile = config.get("ssl_certfile")
 
     # Check for default certificate files if not explicitly set
-    if not ssl_keyfile and os.path.exists("key.pem"):
-        ssl_keyfile = "key.pem"
-    if not ssl_certfile and os.path.exists("cert.pem"):
-        ssl_certfile = "cert.pem"
+    # Use absolute paths based on the project root directory
+    project_root = Path(__file__).parent.parent  # Go up from app/ to project root
+    default_ssl_dir = project_root / "config" / "ssl"
+    
+    # If ssl_keyfile is a relative path, convert it to absolute
+    if ssl_keyfile and not os.path.isabs(ssl_keyfile):
+        ssl_keyfile = str(default_ssl_dir / ssl_keyfile)
+    elif not ssl_keyfile and (default_ssl_dir / "key.pem").exists():
+        ssl_keyfile = str(default_ssl_dir / "key.pem")
+        
+    # If ssl_certfile is a relative path, convert it to absolute  
+    if ssl_certfile and not os.path.isabs(ssl_certfile):
+        ssl_certfile = str(default_ssl_dir / ssl_certfile)
+    elif not ssl_certfile and (default_ssl_dir / "cert.pem").exists():
+        ssl_certfile = str(default_ssl_dir / "cert.pem")
 
     if (
         ssl_keyfile

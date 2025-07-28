@@ -63,7 +63,7 @@ services:
       - MONGO_INITDB_DATABASE=adverse_news_screening
     volumes:
       - mongodb_data:/data/db
-      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+      - ../config/mongodb:/docker-entrypoint-initdb.d:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]

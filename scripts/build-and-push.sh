@@ -5,6 +5,9 @@
 
 set -e
 
+# Navigate to project root
+cd "$(dirname "$0")/.."
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -31,7 +34,7 @@ print_error() {
 # Configuration - Modify these according to your setup
 DEFAULT_REGISTRY="your-dockerhub-username"  # Change this!
 IMAGE_NAME="adverse-news-screening"
-DOCKERFILE="Dockerfile"
+DOCKERFILE="docker/Dockerfile"
 
 # Parse command line arguments
 REGISTRY=${REGISTRY:-$DEFAULT_REGISTRY}

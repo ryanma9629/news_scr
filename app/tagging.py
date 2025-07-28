@@ -13,7 +13,7 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
-from crawler import ApifyCrawler
+from .crawler import ApifyCrawler
 
 load_dotenv()
 

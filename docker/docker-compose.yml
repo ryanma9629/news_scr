@@ -1,13 +1,10 @@
 version: '3.8'
 
-# Production Docker Compose configuration
-# Use this for production deployments with proper security and performance settings
-
 services:
   adverse-news-screening:
-    build: 
-      context: .
-      dockerfile: Dockerfile
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     ports:
       - "8280:8280"
     environment:
@@ -16,21 +13,21 @@ services:
       - PORT=8280
       - RELOAD=false
       
-      # MongoDB connection
+      # MongoDB connection (connects to mongodb service)
       - MONGO_URI=mongodb://mongodb:27017
       
-      # Azure OpenAI configuration (required)
+      # Azure OpenAI configuration (required - set these in .env file)
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
       - OPENAI_API_VERSION=${OPENAI_API_VERSION:-2025-03-01-preview}
       
-      # DeepSeek configuration (required)
+      # DeepSeek configuration (required - set this in .env file)
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       
-      # Tongyi Qwen configuration (required)
+      # Tongyi Qwen configuration (required - set this in .env file)
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
       
-      # Search API keys (optional)
+      # Search API keys (optional - set these in .env file)
       - BING_SUBSCRIPTION_KEY=${BING_SUBSCRIPTION_KEY}
       - BING_SEARCH_URL=${BING_SEARCH_URL:-https://api.bing.microsoft.com/v7.0/search}
       - SERPER_API_KEY=${SERPER_API_KEY}
@@ -45,28 +42,13 @@ services:
       - ./cert.pem:/app/cert.pem:ro
       - ./key.pem:/app/key.pem:ro
     depends_on:
-      mongodb:
-        condition: service_healthy
+      - mongodb
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8280/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: '1.0'
-        reservations:
-          memory: 512M
-          cpus: '0.5'
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   mongodb:
     image: mongo:7
@@ -74,43 +56,20 @@ services:
       - "27017:27017"
     environment:
       - MONGO_INITDB_DATABASE=adverse_news_screening
-      # Uncomment and set these for authentication in production
-      # - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME}
-      # - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     volumes:
       - mongodb_data:/data/db
-      - mongodb_config:/data/configdb
-      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+      - ../config/mongodb:/docker-entrypoint-initdb.d:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    command: mongod --auth
 
 volumes:
   mongodb_data:
-    driver: local
-  mongodb_config:
     driver: local
 
 networks:
   default:
     driver: bridge
-    driver_opts:
-      com.docker.network.driver.mtu: 1500

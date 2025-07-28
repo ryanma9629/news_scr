@@ -45,6 +45,9 @@ check_dependencies() {
     print_success "Dependencies check passed"
 }
 
+# Navigate to project root
+cd "$(dirname "$0")/.."
+
 # Setup environment file
 setup_env() {
     if [ ! -f .env ]; then
@@ -60,14 +63,14 @@ setup_env() {
 # Build the application
 build() {
     print_info "Building Adverse News Screening Docker image..."
-    docker-compose build
+    docker-compose -f docker/docker-compose.yml build
     print_success "Build completed successfully!"
 }
 
 # Start the application
 start() {
     print_info "Starting Adverse News Screening application..."
-    docker-compose up -d
+    docker-compose -f docker/docker-compose.yml up -d
     
     print_success "Application started successfully!"
     print_info "Access the application at: http://localhost:8280"
@@ -77,23 +80,23 @@ start() {
 # Stop the application
 stop() {
     print_info "Stopping Adverse News Screening application..."
-    docker-compose down
+    docker-compose -f docker/docker-compose.yml down
     print_success "Application stopped successfully!"
 }
 
 # Show logs
 logs() {
     if [ "$1" ]; then
-        docker-compose logs -f "$1"
+        docker-compose -f docker/docker-compose.yml logs -f "$1"
     else
-        docker-compose logs -f
+        docker-compose -f docker/docker-compose.yml logs -f
     fi
 }
 
 # Show status
 status() {
     print_info "Application status:"
-    docker-compose ps
+    docker-compose -f docker/docker-compose.yml ps
 }
 
 # Clean up (remove containers and volumes)
@@ -103,7 +106,7 @@ clean() {
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         print_info "Cleaning up..."
-        docker-compose down -v --remove-orphans
+        docker-compose -f docker/docker-compose.yml down -v --remove-orphans
         docker system prune -f
         print_success "Cleanup completed!"
     else
