@@ -157,7 +157,7 @@ docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up
 
 1. **Generate SSL certificates** (if not already available):
 ```bash
-python generate_ssl.py
+python config/ssl/generate_ssl.py
 ```
 
 2. **Configure SSL in environment**:
@@ -235,19 +235,19 @@ sudo lsof -i :27017
 2. **MongoDB connection issues**:
 ```bash
 # Check MongoDB logs
-./docker.sh logs mongodb
+./scripts/docker.sh logs mongodb
 
 # Verify MongoDB health
-docker-compose exec mongodb mongosh --eval "db.adminCommand('ping')"
+docker-compose -f docker/docker-compose.yml exec mongodb mongosh --eval "db.adminCommand('ping')"
 ```
 
 3. **Application won't start**:
 ```bash
 # Check application logs
-./docker.sh logs adverse-news-screening
+./scripts/docker.sh logs adverse-news-screening
 
 # Verify environment variables
-docker-compose exec adverse-news-screening env | grep -E "(AZURE|MONGO)"
+docker-compose -f docker/docker-compose.yml exec adverse-news-screening env | grep -E "(AZURE|MONGO)"
 ```
 
 4. **Memory issues**:
@@ -293,7 +293,7 @@ Enable development features:
 RELOAD=true
 
 # Or override in docker-compose
-docker-compose run --rm -p 8280:8280 -e RELOAD=true adverse-news-screening
+docker-compose -f docker/docker-compose.yml run --rm -p 8280:8280 -e RELOAD=true adverse-news-screening
 ```
 
 ### Code Changes
@@ -302,7 +302,7 @@ For development with live reload:
 
 ```bash
 # Mount source code
-docker-compose -f docker/docker-compose.yml run --rm -p 8280:8280 -v $(pwd):/app adverse-news-screening python serv_fastapi.py
+docker-compose -f docker/docker-compose.yml run --rm -p 8280:8280 -v $(pwd):/app adverse-news-screening python -m app.main
 ```
 
 ### Debugging
@@ -385,9 +385,9 @@ tar -czf backup-$(date +%Y%m%d).tar.gz .env docker/docker-compose*.yml config/
 git pull
 
 # Rebuild and restart
-./docker.sh stop
-./docker.sh build
-./docker.sh start
+./scripts/docker.sh stop
+./scripts/docker.sh build
+./scripts/docker.sh start
 ```
 
 ## 📦 Building and Publishing Docker Images

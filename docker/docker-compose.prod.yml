@@ -42,8 +42,8 @@ services:
       - SSL_KEYFILE=${SSL_KEYFILE}
       - SSL_CERTFILE=${SSL_CERTFILE}
     volumes:
-      - ./cert.pem:/app/cert.pem:ro
-      - ./key.pem:/app/key.pem:ro
+      - ./config/ssl/cert.pem:/app/cert.pem:ro
+      - ./config/ssl/key.pem:/app/key.pem:ro
     depends_on:
       mongodb:
         condition: service_healthy
