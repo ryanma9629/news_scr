@@ -24,7 +24,11 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_DB=adverse_news_screening
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_TAGS_TABLE=${POSTGRES_TAGS_TABLE:-fc_tags}
+      
+      # Deployment configuration
+      - VI_DEPLOY=${VI_DEPLOY:-true}
       
       # Azure OpenAI configuration (required)
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
@@ -119,7 +123,7 @@ services:
     environment:
       - POSTGRES_DB=adverse_news_screening
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       # Enable connection logging for production monitoring
       - POSTGRES_LOG_STATEMENT=all
       - POSTGRES_LOG_CONNECTIONS=on

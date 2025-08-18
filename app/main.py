@@ -1044,39 +1044,42 @@ async def tag_news_content(request: TaggingRequest):
                         days=request.tags_save_days,
                     )
 
-        # Step 3: Always save ALL results to PostgreSQL (both from MongoDB and newly tagged)
-        # Prepare all results for PostgreSQL saving
-        all_results_for_postgres = []
-        
-        # Add results from MongoDB (tags_from_db)
-        for tag in tags_from_db:
-            all_results_for_postgres.append({
-                "url": tag["url"],
-                "crime_type": tag.get("crime_type"),
-                "probability": tag.get("probability"),
-                "method": request.tagging_method,
-            })
-        
-        # Add newly tagged results
-        if 'tagged_results' in locals():
-            all_results_for_postgres.extend(tagged_results)
-        
-        # Always save to PostgreSQL regardless of MongoDB settings
-        if all_results_for_postgres:
-            try:
-                postgres_store = PostgreSQLTagStore()
-                postgres_store.save_tags(
-                    all_results_for_postgres,
-                    company_name=request.company_name,
-                    lang=request.lang,
-                    method=request.tagging_method,
-                    llm_name=request.llm_model,
-                    days=request.tags_save_days,
-                )
-                logger.info(f"Successfully saved {len(all_results_for_postgres)} tags to PostgreSQL")
-            except Exception as postgres_error:
-                logger.error(f"Failed to save tags to PostgreSQL: {postgres_error}")
-                # Continue execution even if PostgreSQL save fails
+        # Step 3: Save ALL results to PostgreSQL when VI_DEPLOY is enabled
+        if VI_DEPLOY:
+            # Prepare all results for PostgreSQL saving
+            all_results_for_postgres = []
+            
+            # Add results from MongoDB (tags_from_db)
+            for tag in tags_from_db:
+                all_results_for_postgres.append({
+                    "url": tag["url"],
+                    "crime_type": tag.get("crime_type"),
+                    "probability": tag.get("probability"),
+                    "method": request.tagging_method,
+                })
+            
+            # Add newly tagged results
+            if 'tagged_results' in locals():
+                all_results_for_postgres.extend(tagged_results)
+            
+            # Save to PostgreSQL when VI_DEPLOY is enabled
+            if all_results_for_postgres:
+                try:
+                    postgres_store = PostgreSQLTagStore()
+                    postgres_store.save_tags(
+                        all_results_for_postgres,
+                        company_name=request.company_name,
+                        lang=request.lang,
+                        method=request.tagging_method,
+                        llm_name=request.llm_model,
+                        days=request.tags_save_days,
+                    )
+                    logger.info(f"Successfully saved {len(all_results_for_postgres)} tags to PostgreSQL (VI_DEPLOY enabled)")
+                except Exception as postgres_error:
+                    logger.error(f"Failed to save tags to PostgreSQL: {postgres_error}")
+                    # Continue execution even if PostgreSQL save fails
+        else:
+            logger.debug("PostgreSQL saving skipped (VI_DEPLOY is disabled)")
 
         success_count = sum(1 for r in results if r.success)
         return TaggingResponse(

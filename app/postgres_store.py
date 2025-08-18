@@ -46,8 +46,15 @@ class PostgreSQLConnectionManager:
                         "port": int(os.getenv("POSTGRES_PORT", "5432")),
                         "database": os.getenv("POSTGRES_DB", "adverse_news_screening"),
                         "user": os.getenv("POSTGRES_USER", "postgres"),
-                        "password": os.getenv("POSTGRES_PASSWORD", "password"),
+                        "password": os.getenv("POSTGRES_PASSWORD"),
                     }
+                    
+                    # Validate that password is provided
+                    if not self._connection_params["password"]:
+                        raise ValueError(
+                            "POSTGRES_PASSWORD environment variable is required but not set. "
+                            "Please set a secure PostgreSQL password in your .env file."
+                        )
                     logger.info(
                         f"PostgreSQL connection parameters loaded: {self._connection_params['host']}:{self._connection_params['port']}/{self._connection_params['database']}"
                     )
