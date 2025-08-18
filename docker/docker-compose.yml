@@ -16,6 +16,13 @@ services:
       # MongoDB connection (connects to mongodb service)
       - MONGO_URI=mongodb://mongodb:27017
       
+      # PostgreSQL connection (connects to postgres service)
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=adverse_news_screening
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      
       # Azure OpenAI configuration (required - set these in .env file)
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
@@ -43,6 +50,7 @@ services:
       - ../config/ssl/key.pem:/app/key.pem:ro
     depends_on:
       - mongodb
+      - postgres
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8280/api/health"]
@@ -66,8 +74,28 @@ services:
       timeout: 10s
       retries: 3
 
+  postgres:
+    image: postgres:15
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=adverse_news_screening
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../config/postgresql:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   mongodb_data:
+    driver: local
+  postgres_data:
     driver: local
 
 networks:

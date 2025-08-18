@@ -50,6 +50,7 @@ nano .env
 - **Web Interface**: http://localhost:8280
 - **API Health Check**: http://localhost:8280/api/health
 - **MongoDB**: localhost:27017
+- **PostgreSQL**: localhost:5432
 
 ## 🏗 Services Overview
 
@@ -61,10 +62,17 @@ nano .env
 
 ### mongodb
 - **Port**: 27017
-- **Description**: MongoDB database for storing scraped content and tags
+- **Description**: MongoDB database for storing scraped content and metadata
 - **Database**: `adverse_news_screening`
 - **Collections**: `web_contents`, `fc_tags`
 - **Persistence**: Data stored in Docker volume `mongodb_data`
+
+### postgres
+- **Port**: 5432
+- **Description**: PostgreSQL database for storing tagging results
+- **Database**: `adverse_news_screening`
+- **Table**: `fc_tags`
+- **Persistence**: Data stored in Docker volume `postgres_data`
 
 ## 📁 Docker Files Overview
 
@@ -203,12 +211,19 @@ Additional security considerations:
 
 ### Database Persistence
 
-MongoDB data is stored in Docker volumes:
+Database data is stored in Docker volumes:
+
+**MongoDB:**
 - `mongodb_data`: Database files
 - `mongodb_config`: Configuration files
 
+**PostgreSQL:**
+- `postgres_data`: Database files
+- `postgres_config`: Configuration files
+
 ### Backup and Restore
 
+**MongoDB:**
 ```bash
 # Backup database
 docker-compose -f docker/docker-compose.yml exec mongodb mongodump --out /tmp/backup
@@ -217,6 +232,15 @@ docker cp $(docker-compose -f docker/docker-compose.yml ps -q mongodb):/tmp/back
 # Restore database
 docker cp ./backup $(docker-compose -f docker/docker-compose.yml ps -q mongodb):/tmp/backup
 docker-compose -f docker/docker-compose.yml exec mongodb mongorestore /tmp/backup
+```
+
+**PostgreSQL:**
+```bash
+# Backup database
+docker-compose -f docker/docker-compose.yml exec postgres pg_dump -U postgres adverse_news_screening > ./backup/postgres_backup.sql
+
+# Restore database
+docker-compose -f docker/docker-compose.yml exec -T postgres psql -U postgres adverse_news_screening < ./backup/postgres_backup.sql
 ```
 
 ## 🐛 Troubleshooting

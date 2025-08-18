@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, SecretStr
 
 from .crawler import ApifyCrawler, CrawlerType
 from .docstore import MongoStore, _mongo_manager
+from .postgres_store import PostgreSQLTagStore
 from .query import QAWithContext
 from .summarization import (
     SUMMARY_LEVELS,
@@ -34,7 +35,7 @@ from .tagging import FCTagging
 from .websearch import BingSearch, GoogleSerperNews
 
 # Configuration constants
-DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_SIZE = 2000
 DEFAULT_CHUNK_OVERLAP = 100
 DEFAULT_SESSION_TIMEOUT_HOURS = 2
 DEFAULT_STORAGE_DAYS = 90
@@ -1032,16 +1033,50 @@ async def tag_news_content(request: TaggingRequest):
                             )
                         )
 
-                # Step 3: Save tagged results to storage
-                if request.tags_save and tagged_results:
+                # Save tagged results to MongoDB if enabled
+                if tagged_results and request.tags_save:
                     handle_storage_operation(
                         mongo_store.save_tags,
-                        "saved tags to storage",
+                        "saved tags to MongoDB",
                         tagged_results,
                         method=request.tagging_method,
                         llm_name=request.llm_model,  # Use the actual model name
                         days=request.tags_save_days,
                     )
+
+        # Step 3: Always save ALL results to PostgreSQL (both from MongoDB and newly tagged)
+        # Prepare all results for PostgreSQL saving
+        all_results_for_postgres = []
+        
+        # Add results from MongoDB (tags_from_db)
+        for tag in tags_from_db:
+            all_results_for_postgres.append({
+                "url": tag["url"],
+                "crime_type": tag.get("crime_type"),
+                "probability": tag.get("probability"),
+                "method": request.tagging_method,
+            })
+        
+        # Add newly tagged results
+        if 'tagged_results' in locals():
+            all_results_for_postgres.extend(tagged_results)
+        
+        # Always save to PostgreSQL regardless of MongoDB settings
+        if all_results_for_postgres:
+            try:
+                postgres_store = PostgreSQLTagStore()
+                postgres_store.save_tags(
+                    all_results_for_postgres,
+                    company_name=request.company_name,
+                    lang=request.lang,
+                    method=request.tagging_method,
+                    llm_name=request.llm_model,
+                    days=request.tags_save_days,
+                )
+                logger.info(f"Successfully saved {len(all_results_for_postgres)} tags to PostgreSQL")
+            except Exception as postgres_error:
+                logger.error(f"Failed to save tags to PostgreSQL: {postgres_error}")
+                # Continue execution even if PostgreSQL save fails
 
         success_count = sum(1 for r in results if r.success)
         return TaggingResponse(
