@@ -10,11 +10,6 @@ from typing import List, Optional
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
-# Constants definition
-DEFAULT_DB_NAME = "adverse_news_screening"
-DEFAULT_CONTENTS_COLLECTION = "web_contents"
-DEFAULT_TAGS_COLLECTION = "fc_tags"
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -166,7 +161,7 @@ class MongoStore(DocStore):
         company_name: str,
         lang: str,
         client: Optional[MongoClient] = None,
-        db: str = DEFAULT_DB_NAME,
+        db: Optional[str] = None,
     ) -> None:
         """Initialize MongoDB document store.
 
@@ -187,7 +182,8 @@ class MongoStore(DocStore):
             self.client = _mongo_manager.get_client()
             self._owns_client = False  # Connection manager owns the client
             
-        self.db = db
+        # Use provided db name or get from environment variable
+        self.db = db or os.getenv("MONGO_DB", "adverse_news_screening")
         logger.info(
             f"MongoStore initialized for company: {company_name}, lang: {lang}, db: {db}"
         )
@@ -219,7 +215,7 @@ class MongoStore(DocStore):
     def load_contents(
         self,
         urls: List[str],
-        collection: str = DEFAULT_CONTENTS_COLLECTION,
+        collection: Optional[str] = None,
         days: int = 0,
     ) -> List[dict]:
         """Load document contents from MongoDB.
@@ -239,8 +235,11 @@ class MongoStore(DocStore):
             logger.warning("Empty URLs list provided to load_contents")
             return []
 
+        # Use provided collection name or get from environment variable
+        collection_name = collection or os.getenv("MONGO_CONTENTS_COLLECTION", "web_contents")
+
         try:
-            with self._get_collection(collection) as col:
+            with self._get_collection(collection_name) as col:
                 # Build query conditions with case-insensitive matching
                 query = {
                     "company_name": {
@@ -276,7 +275,7 @@ class MongoStore(DocStore):
     def save_contents(
         self,
         contents: List[dict],
-        collection: str = DEFAULT_CONTENTS_COLLECTION,
+        collection: Optional[str] = None,
         days: int = 0,
     ) -> None:
         """Save document contents to MongoDB.
@@ -293,8 +292,11 @@ class MongoStore(DocStore):
             logger.warning("Empty contents list provided to save_contents")
             return
 
+        # Use provided collection name or get from environment variable
+        collection_name = collection or os.getenv("MONGO_CONTENTS_COLLECTION", "web_contents")
+
         try:
-            with self._get_collection(collection) as col:
+            with self._get_collection(collection_name) as col:
                 updated_count = 0
                 skipped_count = 0
 
@@ -383,7 +385,7 @@ class MongoStore(DocStore):
         urls: List[str],
         method: str,
         llm_name: str,
-        collection: str = DEFAULT_TAGS_COLLECTION,
+        collection: Optional[str] = None,
         days: int = 0,
     ) -> List[dict]:
         """Load document tags from MongoDB.
@@ -405,8 +407,11 @@ class MongoStore(DocStore):
             logger.warning("Empty URLs list provided to load_tags")
             return []
 
+        # Use provided collection name or get from environment variable
+        collection_name = collection or os.getenv("MONGO_TAGS_COLLECTION", "fc_tags")
+
         try:
-            with self._get_collection(collection) as col:
+            with self._get_collection(collection_name) as col:
                 # Build query conditions with case-insensitive matching
                 query = {
                     "company_name": {
@@ -448,7 +453,7 @@ class MongoStore(DocStore):
         tags: List[dict],
         method: str,
         llm_name: str,
-        collection: str = DEFAULT_TAGS_COLLECTION,
+        collection: Optional[str] = None,
         days: int = 0,
     ) -> None:
         """Save document tags to MongoDB.
@@ -467,8 +472,11 @@ class MongoStore(DocStore):
             logger.warning("Empty tags list provided to save_tags")
             return
 
+        # Use provided collection name or get from environment variable
+        collection_name = collection or os.getenv("MONGO_TAGS_COLLECTION", "fc_tags")
+
         try:
-            with self._get_collection(collection) as col:
+            with self._get_collection(collection_name) as col:
                 for item in tags:
                     required_fields = ["url", "crime_type", "probability"]
                     if not all(field in item for field in required_fields):

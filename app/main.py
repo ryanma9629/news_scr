@@ -38,8 +38,6 @@ DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 100
 DEFAULT_SESSION_TIMEOUT_HOURS = 2
 DEFAULT_STORAGE_DAYS = 90
-DEFAULT_HOST = "0.0.0.0"
-DEFAULT_PORT = 8280
 
 # Deployment configuration
 VI_DEPLOY = (
@@ -410,8 +408,8 @@ def get_server_config():
     """Get server configuration from environment or defaults."""
 
     config = {
-        "host": os.getenv("HOST", DEFAULT_HOST),
-        "port": int(os.getenv("PORT", str(DEFAULT_PORT))),
+        "host": os.getenv("HOST", "0.0.0.0"),
+        "port": int(os.getenv("PORT", "8280")),
         "reload": os.getenv("RELOAD", "false").lower() == "true",
         "ssl_keyfile": os.getenv("SSL_KEYFILE"),
         "ssl_certfile": os.getenv("SSL_CERTFILE"),
