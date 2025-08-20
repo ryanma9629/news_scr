@@ -5,50 +5,16 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    env_file:
+      - ../.env
     ports:
       - "8280:8280"
     environment:
-      # Server configuration
+      # Override specific container networking settings
       - HOST=0.0.0.0
       - PORT=8280
-      - RELOAD=false
-      
-      # MongoDB connection (connects to mongodb service)
       - MONGO_URI=mongodb://mongodb:27017
-      
-      # PostgreSQL connection (connects to postgres service)
       - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=adverse_news_screening
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_TAGS_TABLE=${POSTGRES_TAGS_TABLE:-fc_tags}
-      
-      # Deployment configuration
-      - VI_DEPLOY=${VI_DEPLOY:-false}
-      
-      # Azure OpenAI configuration (required - set these in .env file)
-      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
-      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
-      - OPENAI_API_VERSION=${OPENAI_API_VERSION:-2025-03-01-preview}
-      
-      # DeepSeek configuration (required - set this in .env file)
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      
-      # Tongyi Qwen configuration (required - set this in .env file)
-      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
-      
-      # Search API keys (optional - set these in .env file)
-      - BING_SUBSCRIPTION_KEY=${BING_SUBSCRIPTION_KEY}
-      - BING_SEARCH_URL=${BING_SEARCH_URL:-https://api.bing.microsoft.com/v7.0/search}
-      - SERPER_API_KEY=${SERPER_API_KEY}
-      
-      # Apify configuration (optional)
-      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
-      
-      # SSL configuration (optional)
-      - SSL_KEYFILE=${SSL_KEYFILE}
-      - SSL_CERTFILE=${SSL_CERTFILE}
     volumes:
       - ../config/ssl/cert.pem:/app/cert.pem:ro
       - ../config/ssl/key.pem:/app/key.pem:ro
@@ -66,6 +32,8 @@ services:
 
   mongodb:
     image: mongo:7
+    env_file:
+      - ../.env
     ports:
       - "27017:27017"
     environment:
@@ -82,12 +50,10 @@ services:
 
   postgres:
     image: postgres:15
+    env_file:
+      - ../.env
     ports:
       - "5432:5432"
-    environment:
-      - POSTGRES_DB=adverse_news_screening
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../config/postgresql:/docker-entrypoint-initdb.d:ro
