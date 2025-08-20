@@ -75,7 +75,9 @@ class PostgreSQLConnectionManager:
         conn = None
         try:
             params = self.get_connection_params()
-            conn = psycopg2.connect(**params)
+            # Remove 'schema' from connection params as it's not a valid psycopg2 parameter
+            connection_params = {k: v for k, v in params.items() if k != 'schema'}
+            conn = psycopg2.connect(**connection_params)
             yield conn
         except psycopg2.Error as e:
             logger.error(f"PostgreSQL connection error: {e}")
