@@ -1066,6 +1066,10 @@ async def tag_news_content(request: TaggingRequest):
             if all_results_for_postgres:
                 try:
                     postgres_store = PostgreSQLTagStore()
+                    # Import the manager to get connection details for logging
+                    from .postgres_store import _postgres_manager
+                    conn_params = _postgres_manager.get_connection_params()
+                    logger.info(f"Connecting to PostgreSQL database '{conn_params['database']}' schema '{postgres_store.schema}' on {conn_params['host']}:{conn_params['port']}")
                     postgres_store.save_tags(
                         all_results_for_postgres,
                         company_name=request.company_name,
@@ -1074,7 +1078,7 @@ async def tag_news_content(request: TaggingRequest):
                         llm_name=request.llm_model,
                         days=request.tags_save_days,
                     )
-                    logger.info(f"Successfully saved {len(all_results_for_postgres)} tags to PostgreSQL (VI_DEPLOY enabled)")
+                    logger.info(f"Successfully saved {len(all_results_for_postgres)} tags to PostgreSQL schema '{postgres_store.schema}' table '{postgres_store.table_name}' (VI_DEPLOY enabled)")
                 except Exception as postgres_error:
                     logger.error(f"Failed to save tags to PostgreSQL: {postgres_error}")
                     # Continue execution even if PostgreSQL save fails

@@ -44,9 +44,10 @@ class PostgreSQLConnectionManager:
                     self._connection_params = {
                         "host": os.getenv("POSTGRES_HOST", "localhost"),
                         "port": int(os.getenv("POSTGRES_PORT", "5432")),
-                        "database": os.getenv("POSTGRES_DB", "adverse_news_screening"),
-                        "user": os.getenv("POSTGRES_USER", "postgres"),
+                        "database": os.getenv("POSTGRES_DB", "SharedServices"),
+                        "user": os.getenv("POSTGRES_USER", "dbmsowner"),
                         "password": os.getenv("POSTGRES_PASSWORD"),
+                        "schema": os.getenv("POSTGRES_SCHEMA", "namecheck"),
                     }
                     
                     # Validate that password is provided
@@ -103,21 +104,35 @@ class PostgreSQLTagStore:
     with automatic table creation and schema management.
     """
 
-    def __init__(self, table_name: Optional[str] = None):
+    def __init__(self, table_name: Optional[str] = None, schema: Optional[str] = None):
         """Initialize PostgreSQL tag store.
 
         Args:
             table_name: Optional table name override
+            schema: Optional schema name override
         """
         self.table_name = table_name or os.getenv("POSTGRES_TAGS_TABLE", "fc_tags")
-        self._ensure_table_exists()
-        logger.info(f"PostgreSQLTagStore initialized with table: {self.table_name}")
+        self.schema = schema or os.getenv("POSTGRES_SCHEMA", "public")
+        self._ensure_schema_and_table_exist()
+        logger.info(f"PostgreSQLTagStore initialized with schema.table: {self.schema}.{self.table_name}")
 
-    def _ensure_table_exists(self):
-        """Ensure the tags table exists with proper schema."""
+    def _get_qualified_table_name(self):
+        """Get the schema-qualified table name as SQL identifier."""
+        return sql.Identifier(self.schema, self.table_name)
+
+    def _ensure_schema_and_table_exist(self):
+        """Ensure the schema and tags table exist with proper schema."""
         try:
             with _postgres_manager.get_connection() as conn:
                 with conn.cursor() as cursor:
+                    # Create schema if it doesn't exist (only if not 'public')
+                    if self.schema != "public":
+                        create_schema_query = sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
+                            sql.Identifier(self.schema)
+                        )
+                        cursor.execute(create_schema_query)
+                        logger.info(f"Schema '{self.schema}' created or already exists")
+
                     # Create table if it doesn't exist
                     create_table_query = sql.SQL("""
                         CREATE TABLE IF NOT EXISTS {} (
@@ -133,7 +148,7 @@ class PostgreSQLTagStore:
                             created_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                             UNIQUE(company_name, lang, url, method, llm_name)
                         )
-                    """).format(sql.Identifier(self.table_name))
+                    """).format(self._get_qualified_table_name())
 
                     cursor.execute(create_table_query)
 
@@ -142,24 +157,24 @@ class PostgreSQLTagStore:
                         sql.SQL(
                             "CREATE INDEX IF NOT EXISTS {} ON {} (company_name, lang)"
                         ).format(
-                            sql.Identifier(f"{self.table_name}_company_lang_idx"),
-                            sql.Identifier(self.table_name),
+                            sql.Identifier(f"{self.schema}_{self.table_name}_company_lang_idx"),
+                            self._get_qualified_table_name(),
                         ),
                         sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} (url)").format(
-                            sql.Identifier(f"{self.table_name}_url_idx"),
-                            sql.Identifier(self.table_name),
+                            sql.Identifier(f"{self.schema}_{self.table_name}_url_idx"),
+                            self._get_qualified_table_name(),
                         ),
                         sql.SQL(
                             "CREATE INDEX IF NOT EXISTS {} ON {} (method, llm_name)"
                         ).format(
-                            sql.Identifier(f"{self.table_name}_method_llm_idx"),
-                            sql.Identifier(self.table_name),
+                            sql.Identifier(f"{self.schema}_{self.table_name}_method_llm_idx"),
+                            self._get_qualified_table_name(),
                         ),
                         sql.SQL(
                             "CREATE INDEX IF NOT EXISTS {} ON {} (modified_date)"
                         ).format(
-                            sql.Identifier(f"{self.table_name}_modified_date_idx"),
-                            sql.Identifier(self.table_name),
+                            sql.Identifier(f"{self.schema}_{self.table_name}_modified_date_idx"),
+                            self._get_qualified_table_name(),
                         ),
                     ]
 
@@ -168,7 +183,7 @@ class PostgreSQLTagStore:
 
                     conn.commit()
                     logger.info(
-                        f"PostgreSQL table '{self.table_name}' ensured with proper schema and indexes"
+                        f"PostgreSQL table '{self.schema}.{self.table_name}' ensured with proper schema and indexes"
                     )
 
         except Exception as e:
@@ -228,7 +243,7 @@ class PostgreSQLTagStore:
                                 AND url = %s 
                                 AND method = %s 
                                 AND llm_name = %s
-                            """).format(sql.Identifier(self.table_name))
+                            """).format(self._get_qualified_table_name())
 
                             cursor.execute(
                                 check_query,
@@ -263,9 +278,9 @@ class PostgreSQLTagStore:
                                     {}.crime_type IS DISTINCT FROM EXCLUDED.crime_type OR
                                     {}.probability IS DISTINCT FROM EXCLUDED.probability
                             """).format(
-                                sql.Identifier(self.table_name),
-                                sql.Identifier(self.table_name),
-                                sql.Identifier(self.table_name),
+                                self._get_qualified_table_name(),
+                                self._get_qualified_table_name(),
+                                self._get_qualified_table_name(),
                             )
 
                             cursor.execute(
@@ -331,7 +346,7 @@ class PostgreSQLTagStore:
 
                     query_parts = [
                         sql.SQL("SELECT url, crime_type, probability FROM {}").format(
-                            sql.Identifier(self.table_name)
+                            self._get_qualified_table_name()
                         ),
                         sql.SQL("WHERE LOWER(company_name) = LOWER(%s)"),
                         sql.SQL("AND LOWER(lang) = LOWER(%s)"),
