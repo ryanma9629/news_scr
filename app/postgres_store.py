@@ -10,6 +10,9 @@ import psycopg2.extras
 from psycopg2 import sql
 
 # Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
