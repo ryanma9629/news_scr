@@ -17,14 +17,11 @@ services:
       - HOST=0.0.0.0
       - PORT=8280
       - MONGO_URI=mongodb://mongodb:27017
-      - POSTGRES_HOST=postgres
     volumes:
       - ../config/ssl/cert.pem:/app/cert.pem:ro
       - ../config/ssl/key.pem:/app/key.pem:ro
     depends_on:
       mongodb:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -84,49 +81,10 @@ services:
         max-file: "3"
     command: mongod --auth
 
-  postgres:
-    image: postgres:15
-    env_file:
-      - ../.env
-    ports:
-      - "8432:5432"
-    environment:
-      # Enable connection logging for production monitoring
-      - POSTGRES_LOG_STATEMENT=all
-      - POSTGRES_LOG_CONNECTIONS=on
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - postgres_config:/etc/postgresql
-      - ../config/postgresql:/docker-entrypoint-initdb.d:ro
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 volumes:
   mongodb_data:
     driver: local
   mongodb_config:
-    driver: local
-  postgres_data:
-    driver: local
-  postgres_config:
     driver: local
 
 networks:

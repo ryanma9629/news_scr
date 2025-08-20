@@ -14,14 +14,11 @@ services:
       - HOST=0.0.0.0
       - PORT=8280
       - MONGO_URI=mongodb://mongodb:27017
-      - POSTGRES_HOST=postgres
     volumes:
       - ../config/ssl/cert.pem:/app/cert.pem:ro
       - ../config/ssl/key.pem:/app/key.pem:ro
     depends_on:
       mongodb:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -48,26 +45,8 @@ services:
       timeout: 10s
       retries: 3
 
-  postgres:
-    image: postgres:15
-    env_file:
-      - ../.env
-    ports:
-      - "8432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ../config/postgresql:/docker-entrypoint-initdb.d:ro
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
 volumes:
   mongodb_data:
-    driver: local
-  postgres_data:
     driver: local
 
 networks:
