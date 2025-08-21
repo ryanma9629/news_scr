@@ -48,8 +48,6 @@ services:
     image: mongo:7
     env_file:
       - ../.env
-    ports:
-      - "27017:27017"
     environment:
       - MONGO_INITDB_DATABASE=adverse_news_screening
       # Uncomment and set these for authentication in production
