@@ -547,7 +547,7 @@ app = setup_app_configuration()
 # Request models
 class SearchRequest(BaseModel):
     company_name: str = Field(..., description="Company name to search for")
-    customer_id: str = Field(default="default", description="Customer identifier for multi-tenant support")
+    customer_id: Optional[str] = Field(None, description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code (e.g., 'zh-CN', 'en-US')")
     search_suffix: str = Field(..., description="Search topic suffix")
     search_engine: str = Field(..., description="Search engine ('Google' or 'Bing')")
@@ -567,7 +567,7 @@ class CrawlerRequest(BaseModel):
         description="Crawler type ('cheerio', 'playwright:chrome', 'playwright:firefox', 'playwright:adaptive')",
     )
     company_name: str = Field(..., description="Company name for storage")
-    customer_id: str = Field(default="default", description="Customer identifier for multi-tenant support")
+    customer_id: Optional[str] = Field(None, description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code for storage")
     contents_save: bool = Field(default=True, description="Save contents to storage")
     contents_load: bool = Field(
@@ -587,7 +587,7 @@ class CrawlerRequest(BaseModel):
 class TaggingRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to tag")
     company_name: str = Field(..., description="Company name for storage")
-    customer_id: str = Field(default="default", description="Customer identifier for multi-tenant support")
+    customer_id: Optional[str] = Field(None, description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code for storage")
     tagging_method: str = Field(
         default="rag", description="Tagging method ('rag' or 'all')"
@@ -611,7 +611,7 @@ class TaggingRequest(BaseModel):
 class SummaryRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to summarize")
     company_name: str = Field(..., description="Company name for storage")
-    customer_id: str = Field(default="default", description="Customer identifier for multi-tenant support")
+    customer_id: Optional[str] = Field(None, description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code for storage")
     summary_method: str = Field(
         default="map-reduce",
@@ -636,7 +636,7 @@ class SummaryRequest(BaseModel):
 class QARequest(BaseModel):
     question: str = Field(..., description="Question to ask")
     company_name: str = Field(..., description="Company name for context")
-    customer_id: str = Field(default="default", description="Customer identifier for multi-tenant support")
+    customer_id: Optional[str] = Field(None, description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code")
     urls: List[str] = Field(..., description="URLs to use as context")
     llm_model: str = Field(default="gpt-4o-mini", description="LLM model to use")
@@ -1007,6 +1007,9 @@ async def tag_news_content(request: TaggingRequest):
     """Perform FC Tagging on news content with storage and session support."""
     try:
         session_id = request.session_id
+        
+        # Debug logging for customer_id
+        logger.info(f"Tagging request received with customer_id: '{request.customer_id}' (VI_DEPLOY: {VI_DEPLOY})")
 
         # Validate LLM model
         try:
@@ -1176,6 +1179,11 @@ async def tag_news_content(request: TaggingRequest):
                     from .postgres_store import _postgres_manager
                     conn_params = _postgres_manager.get_connection_params()
                     logger.info(f"Connecting to PostgreSQL database '{conn_params['database']}' schema '{postgres_store.schema}' on {conn_params['host']}:{conn_params['port']}")
+                    
+                    # Debug log the customer_id being saved
+                    effective_customer_id = request.customer_id or "default"
+                    logger.info(f"Saving to PostgreSQL with customer_id: '{effective_customer_id}' (original: '{request.customer_id}')")
+                    
                     postgres_store.save_tags(
                         all_results_for_postgres,
                         company_name=request.company_name,
@@ -1183,7 +1191,7 @@ async def tag_news_content(request: TaggingRequest):
                         method=request.tagging_method,
                         llm_name=request.llm_model,
                         days=request.tags_save_days,
-                        customer_id=request.customer_id,
+                        customer_id=effective_customer_id,
                     )
                     logger.info(f"Successfully saved {len(all_results_for_postgres)} tags to PostgreSQL schema '{postgres_store.schema}' table '{postgres_store.table_name}' (VI_DEPLOY enabled)")
                 except Exception as postgres_error:

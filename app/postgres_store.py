@@ -227,6 +227,8 @@ class PostgreSQLTagStore:
         # Use default customer_id if not provided for backward compatibility
         if customer_id is None:
             customer_id = "default"
+            
+        logger.info(f"PostgreSQL save_tags called with customer_id: '{customer_id}', tags count: {len(tags)}")
 
         try:
             with _postgres_manager.get_connection() as conn:

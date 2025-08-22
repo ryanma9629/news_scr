@@ -176,12 +176,8 @@ const Utils = {
             llm_model: $('#llm_model').val()
         };
 
-        // Add customer_id - from URL in VI_DEPLOY mode, or default value
-        if (window.VI_DEPLOY && window.URL_CUSTOMER_ID) {
-            formData.customer_id = window.URL_CUSTOMER_ID;
-        } else {
-            formData.customer_id = "default";
-        }
+        // Always add customer_id - from URL in VI_DEPLOY mode, or default value
+        formData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
 
         // Validate LLM model
         if (!SUPPORTED_LLM_MODELS.includes(formData.llm_model)) {
@@ -419,12 +415,8 @@ function getNewsContent() {
         session_id: AppState.sessionId
     };
 
-    // Add customer_id - from URL in VI_DEPLOY mode, or default value
-    if (window.VI_DEPLOY && window.URL_CUSTOMER_ID) {
-        requestData.customer_id = window.URL_CUSTOMER_ID;
-    } else {
-        requestData.customer_id = "default";
-    }
+    // Always add customer_id - from URL in VI_DEPLOY mode, or default value
+    requestData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
 
     AjaxHelper.makeRequest({
         url: '/api/crawler',
@@ -509,18 +501,16 @@ function performTagging() {
         session_id: AppState.sessionId
     };
 
-    // Add customer_id - from URL in VI_DEPLOY mode, or default value
-    if (window.VI_DEPLOY && window.URL_CUSTOMER_ID) {
-        requestData.customer_id = window.URL_CUSTOMER_ID;
-    } else {
-        requestData.customer_id = "default";
-    }
+    // Always add customer_id - from URL in VI_DEPLOY mode, or default value
+    requestData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
 
     AjaxHelper.makeRequest({
         url: '/api/tagging',
         data: requestData,
         timeout: 180000,
         beforeSend: () => {
+            // Debug logging for tagging
+            console.log(`Tagging request - VI_DEPLOY: ${window.VI_DEPLOY}, URL_CUSTOMER_ID: '${window.URL_CUSTOMER_ID}', sending customer_id: '${requestData.customer_id}'`);
             UIState.toggleSubmitButton('#btn_tagging_submit', true);
             AlertManager.showLoading('Processing FC tagging, please wait...');
         }
@@ -630,12 +620,8 @@ function performSummary() {
         session_id: AppState.sessionId
     };
 
-    // Add customer_id - from URL in VI_DEPLOY mode, or default value
-    if (window.VI_DEPLOY && window.URL_CUSTOMER_ID) {
-        requestData.customer_id = window.URL_CUSTOMER_ID;
-    } else {
-        requestData.customer_id = "default";
-    }
+    // Always add customer_id - from URL in VI_DEPLOY mode, or default value
+    requestData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
 
     AjaxHelper.makeRequest({
         url: '/api/summary',
@@ -711,12 +697,8 @@ function performQA() {
         session_id: AppState.sessionId
     };
 
-    // Add customer_id - from URL in VI_DEPLOY mode, or default value
-    if (window.VI_DEPLOY && window.URL_CUSTOMER_ID) {
-        requestData.customer_id = window.URL_CUSTOMER_ID;
-    } else {
-        requestData.customer_id = "default";
-    }
+    // Always add customer_id - from URL in VI_DEPLOY mode, or default value
+    requestData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
 
     AjaxHelper.makeRequest({
         url: '/api/qa',
