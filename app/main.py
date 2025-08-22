@@ -4,6 +4,7 @@ import os
 import signal
 import socket
 import threading
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from functools import wraps
@@ -13,8 +14,9 @@ from typing import Dict, List, Optional, Tuple
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 from langchain_community.chat_models.tongyi import ChatTongyi
 from langchain_core.documents import Document
 from langchain_deepseek import ChatDeepSeek
@@ -44,6 +46,15 @@ DEFAULT_STORAGE_DAYS = 90
 VI_DEPLOY = (
     os.getenv("VI_DEPLOY", "false").lower() == "true"
 )  # Set to True for VI deployment mode
+
+# Cookie and IFRAME configuration
+ALLOW_IFRAME_EMBEDDING = os.getenv("ALLOW_IFRAME_EMBEDDING", "false").lower() == "true"
+IFRAME_ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("IFRAME_ALLOWED_ORIGINS", "").split(",") if origin.strip()]
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "Lax")  # None, Lax, Strict
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"
+COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", "")
+SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", "86400"))  # 24 hours
+SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", secrets.token_urlsafe(32))
 
 # Supported LLM deployments mapping
 SUPPORTED_LLM_DEPLOYMENTS = {
@@ -304,6 +315,35 @@ def update_session_data(session_id: str, key: str, value):
     session_manager.update_session(session_id, key, value)
 
 
+def set_session_cookie(response: Response, session_id: str, max_age: int = SESSION_MAX_AGE):
+    """Set session cookie with proper SameSite and Secure policies."""
+    cookie_kwargs = {
+        "key": "session_id",
+        "value": session_id,
+        "max_age": max_age,
+        "httponly": True,
+        "samesite": COOKIE_SAMESITE,
+        "secure": COOKIE_SECURE,
+    }
+    
+    # Add domain if specified
+    if COOKIE_DOMAIN:
+        cookie_kwargs["domain"] = COOKIE_DOMAIN
+    
+    response.set_cookie(**cookie_kwargs)
+    return response
+
+
+def create_json_response_with_cookies(data: dict, session_id: str = None) -> JSONResponse:
+    """Create a JSON response with proper cookie settings."""
+    response = JSONResponse(content=data)
+    
+    if session_id:
+        set_session_cookie(response, session_id)
+    
+    return response
+
+
 # Consolidated validation and processing utilities
 def validate_session_and_urls(
     session_id: Optional[str], urls: List[str], operation_name: str
@@ -368,30 +408,79 @@ def setup_app_configuration():
     """Setup FastAPI app with middleware and static files."""
     app = FastAPI(title="News Search API", version="1.0.0", lifespan=lifespan)
 
+    # Add session middleware with SameSite and Secure cookie settings
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=SESSION_SECRET_KEY,
+        max_age=SESSION_MAX_AGE,
+        same_site=COOKIE_SAMESITE,
+        https_only=COOKIE_SECURE,
+        domain=COOKIE_DOMAIN if COOKIE_DOMAIN else None,
+    )
+
+    # CORS configuration based on IFRAME settings
+    cors_origins = [
+        "https://localhost:8280",
+        "https://127.0.0.1:8280",
+        "http://localhost:8280",
+        "http://127.0.0.1:8280",
+        "https://localhost",
+        "https://127.0.0.1",
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://sasserver.demo.sas.com",
+        "https://sasserver.demo.sas.com",
+        "http://sasserver",
+        "https://sasserver",
+    ]
+    
+    # Add IFRAME origins if embedding is enabled
+    if ALLOW_IFRAME_EMBEDDING and IFRAME_ALLOWED_ORIGINS:
+        if "*" in IFRAME_ALLOWED_ORIGINS:
+            cors_origins = ["*"]
+        else:
+            cors_origins.extend(IFRAME_ALLOWED_ORIGINS)
+
     # Add CORS middleware with proper HTTPS support
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "https://localhost:8280",
-            "https://127.0.0.1:8280",
-            "http://localhost:8280",
-            "http://127.0.0.1:8280",
-            "https://localhost",
-            "https://127.0.0.1",
-            "http://localhost",
-            "http://127.0.0.1",
-            "http://sasserver.demo.sas.com",
-            "https://sasserver.demo.sas.com",
-            "http://sasserver",
-            "https://sasserver",
-        ],
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
         expose_headers=["*"],
-        same_site="None",
-        http_only=True,
     )
+
+    # Security headers middleware with IFRAME and cookie support
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        """Add security headers including IFRAME and cookie policies."""
+        response = await call_next(request)
+        
+        # IFRAME embedding headers
+        if ALLOW_IFRAME_EMBEDDING:
+            if "*" in IFRAME_ALLOWED_ORIGINS or not IFRAME_ALLOWED_ORIGINS:
+                response.headers["X-Frame-Options"] = "ALLOWALL"
+                response.headers["Content-Security-Policy"] = "frame-ancestors *"
+            else:
+                # More secure: specify allowed origins
+                allowed_origins = " ".join(IFRAME_ALLOWED_ORIGINS)
+                response.headers["Content-Security-Policy"] = f"frame-ancestors {allowed_origins}"
+        else:
+            # Default: prevent IFRAME embedding
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+        
+        # Additional security headers
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        
+        # HSTS header for HTTPS
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            
+        return response
 
     # Add connection error handling middleware
     @app.middleware("http")
@@ -415,8 +504,8 @@ def get_server_config():
     """Get server configuration from environment or defaults."""
 
     config = {
-        "host": os.getenv("HOST", "0.0.0.0"),
-        "port": int(os.getenv("PORT", "8280")),
+        "host": "0.0.0.0",
+        "port": 8280,
         "reload": os.getenv("RELOAD", "false").lower() == "true",
         "ssl_keyfile": os.getenv("SSL_KEYFILE"),
         "ssl_certfile": os.getenv("SSL_CERTFILE"),
@@ -737,13 +826,17 @@ async def search_news(http_request: Request, request: SearchRequest):
             },
         )
 
-        return SearchResponse(
-            success=True,
-            results=search_results,
-            total_results=len(search_results),
-            message=f"Successfully found {len(search_results)} news articles",
-            session_id=session_id,
-        )
+        # Create response data
+        response_data = {
+            "success": True,
+            "results": [{"url": result.url, "title": result.title} for result in search_results],
+            "total_results": len(search_results),
+            "message": f"Successfully found {len(search_results)} news articles",
+            "session_id": session_id,
+        }
+
+        # Return response with cookies
+        return create_json_response_with_cookies(response_data, session_id)
 
     except Exception as e:
         logger.error(f"Search error: {str(e)}")
