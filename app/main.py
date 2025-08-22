@@ -748,6 +748,9 @@ async def serve_index(request: Request):
         # Inject VI_DEPLOY configuration and company_name if provided
         company_name = request.query_params.get("company_name", "")
         customer_id = request.query_params.get("customer_id", "")
+        
+        # Debug logging for URL parameters
+        logger.info(f"Root endpoint called with company_name: '{company_name}', customer_id: '{customer_id}', VI_DEPLOY: {VI_DEPLOY}")
 
         # Add JavaScript configuration at the end of the body
         config_script = f"""
@@ -1019,7 +1022,10 @@ async def tag_news_content(request: TaggingRequest):
         session_id = request.session_id
         
         # Debug logging for customer_id
-        logger.info(f"Tagging request received with customer_id: '{request.customer_id}' (VI_DEPLOY: {VI_DEPLOY})")
+        logger.info(f"Tagging request received with customer_id: '{request.customer_id}' (type: {type(request.customer_id)}) (VI_DEPLOY: {VI_DEPLOY})")
+        logger.info(f"Customer_id is None: {request.customer_id is None}")
+        logger.info(f"Customer_id is empty string: {request.customer_id == ''}")
+        logger.info(f"Customer_id is falsy: {not request.customer_id}")
 
         # Validate LLM model
         try:
@@ -1190,9 +1196,9 @@ async def tag_news_content(request: TaggingRequest):
                     conn_params = _postgres_manager.get_connection_params()
                     logger.info(f"Connecting to PostgreSQL database '{conn_params['database']}' schema '{postgres_store.schema}' on {conn_params['host']}:{conn_params['port']}")
                     
-                    # Debug log the customer_id being saved
-                    effective_customer_id = request.customer_id or "default"
-                    logger.info(f"Saving to PostgreSQL with customer_id: '{effective_customer_id}' (original: '{request.customer_id}')")
+                    # Debug log the customer_id being saved - handle empty strings properly
+                    effective_customer_id = request.customer_id if request.customer_id else "default"
+                    logger.info(f"Saving to PostgreSQL with customer_id: '{effective_customer_id}' (original: '{request.customer_id}', is_empty: {not request.customer_id})")
                     
                     postgres_store.save_tags(
                         all_results_for_postgres,
