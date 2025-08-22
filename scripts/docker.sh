@@ -74,7 +74,6 @@ start() {
     
     print_success "Application started successfully!"
     print_info "Access the application at: http://localhost:8280"
-    print_info "MongoDB is available at: localhost:27017"
 }
 
 # Stop the application

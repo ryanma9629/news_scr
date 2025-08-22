@@ -380,11 +380,17 @@ def setup_app_configuration():
             "https://127.0.0.1",
             "http://localhost",
             "http://127.0.0.1",
+            "http://sasserver.demo.sas.com",
+            "https://sasserver.demo.sas.com",
+            "http://sasserver",
+            "https://sasserver",
         ],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
         expose_headers=["*"],
+        same_site="None",
+        http_only=True,
     )
 
     # Add connection error handling middleware
