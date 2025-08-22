@@ -24,6 +24,13 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field, SecretStr
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not available, use system environment variables
+
 from .crawler import ApifyCrawler, CrawlerType
 from .docstore import MongoStore, _mongo_manager
 from .postgres_store import PostgreSQLTagStore
@@ -106,6 +113,9 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+# Log VI_DEPLOY status for debugging
+logger.info(f"VI_DEPLOY mode: {VI_DEPLOY} (from env: {os.getenv('VI_DEPLOY', 'not_set')})")
 
 # Suppress noisy asyncio connection reset errors on Windows
 logging.getLogger("asyncio").setLevel(logging.CRITICAL)
