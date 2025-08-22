@@ -176,6 +176,13 @@ const Utils = {
             llm_model: $('#llm_model').val()
         };
 
+        // Add customer_id - from URL in VI_DEPLOY mode, or default value
+        if (window.VI_DEPLOY && window.URL_CUSTOMER_ID) {
+            formData.customer_id = window.URL_CUSTOMER_ID;
+        } else {
+            formData.customer_id = "default";
+        }
+
         // Validate LLM model
         if (!SUPPORTED_LLM_MODELS.includes(formData.llm_model)) {
             throw new Error(`LLM model "${formData.llm_model}" is currently unsupported. Please select one of: ${SUPPORTED_LLM_MODELS.join(', ')}`);
@@ -219,25 +226,25 @@ function initializeApp() {
         $('#company_name_section').hide();
         
         // Set company name from URL parameter if provided
-        if (window.URL_COMPANY_NAME) {
+        if (window.URL_COMPANY_NAME && window.URL_CUSTOMER_ID) {
             $('#company_name').val(window.URL_COMPANY_NAME);
             
             // Add a notification showing the company name being analyzed
             const notification = `
                 <div class="alert alert-info alert-dismissible fade show" role="alert">
                     <i class="bi bi-info-circle me-2"></i>
-                    <strong>VI Deploy Mode:</strong> Analyzing news for <strong>${window.URL_COMPANY_NAME}</strong>
+                    <strong>VI Deploy Mode:</strong> Analyzing news for <strong>${window.URL_COMPANY_NAME}</strong> (Customer: ${window.URL_CUSTOMER_ID})
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
             `;
             $('#div_ajax_info').html(notification).show();
         } else {
-            // If no company name in URL, show error
-            console.warn('VI_DEPLOY mode enabled but no company_name provided in URL');
+            // If no company name or customer_id in URL, show error
+            console.warn('VI_DEPLOY mode enabled but no company_name or customer_id provided in URL');
             const errorNotification = `
                 <div class="alert alert-warning alert-dismissible fade show" role="alert">
                     <i class="bi bi-exclamation-triangle me-2"></i>
-                    <strong>Warning:</strong> No company name provided in URL. Please add ?company_name=YourCompany to the URL.
+                    <strong>Warning:</strong> Missing required parameters. Please add ?company_name=YourCompany&customer_id=YourCustomer to the URL.
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
             `;
@@ -412,6 +419,13 @@ function getNewsContent() {
         session_id: AppState.sessionId
     };
 
+    // Add customer_id - from URL in VI_DEPLOY mode, or default value
+    if (window.VI_DEPLOY && window.URL_CUSTOMER_ID) {
+        requestData.customer_id = window.URL_CUSTOMER_ID;
+    } else {
+        requestData.customer_id = "default";
+    }
+
     AjaxHelper.makeRequest({
         url: '/api/crawler',
         data: requestData,
@@ -494,6 +508,13 @@ function performTagging() {
         tags_load_days: parseInt($('#tags_load_days').val()),
         session_id: AppState.sessionId
     };
+
+    // Add customer_id - from URL in VI_DEPLOY mode, or default value
+    if (window.VI_DEPLOY && window.URL_CUSTOMER_ID) {
+        requestData.customer_id = window.URL_CUSTOMER_ID;
+    } else {
+        requestData.customer_id = "default";
+    }
 
     AjaxHelper.makeRequest({
         url: '/api/tagging',
@@ -609,6 +630,13 @@ function performSummary() {
         session_id: AppState.sessionId
     };
 
+    // Add customer_id - from URL in VI_DEPLOY mode, or default value
+    if (window.VI_DEPLOY && window.URL_CUSTOMER_ID) {
+        requestData.customer_id = window.URL_CUSTOMER_ID;
+    } else {
+        requestData.customer_id = "default";
+    }
+
     AjaxHelper.makeRequest({
         url: '/api/summary',
         data: requestData,
@@ -682,6 +710,13 @@ function performQA() {
         llm_model: $('#llm_model').val(),
         session_id: AppState.sessionId
     };
+
+    // Add customer_id - from URL in VI_DEPLOY mode, or default value
+    if (window.VI_DEPLOY && window.URL_CUSTOMER_ID) {
+        requestData.customer_id = window.URL_CUSTOMER_ID;
+    } else {
+        requestData.customer_id = "default";
+    }
 
     AjaxHelper.makeRequest({
         url: '/api/qa',

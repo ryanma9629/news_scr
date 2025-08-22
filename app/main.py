@@ -547,6 +547,7 @@ app = setup_app_configuration()
 # Request models
 class SearchRequest(BaseModel):
     company_name: str = Field(..., description="Company name to search for")
+    customer_id: str = Field(default="default", description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code (e.g., 'zh-CN', 'en-US')")
     search_suffix: str = Field(..., description="Search topic suffix")
     search_engine: str = Field(..., description="Search engine ('Google' or 'Bing')")
@@ -566,6 +567,7 @@ class CrawlerRequest(BaseModel):
         description="Crawler type ('cheerio', 'playwright:chrome', 'playwright:firefox', 'playwright:adaptive')",
     )
     company_name: str = Field(..., description="Company name for storage")
+    customer_id: str = Field(default="default", description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code for storage")
     contents_save: bool = Field(default=True, description="Save contents to storage")
     contents_load: bool = Field(
@@ -585,6 +587,7 @@ class CrawlerRequest(BaseModel):
 class TaggingRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to tag")
     company_name: str = Field(..., description="Company name for storage")
+    customer_id: str = Field(default="default", description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code for storage")
     tagging_method: str = Field(
         default="rag", description="Tagging method ('rag' or 'all')"
@@ -608,6 +611,7 @@ class TaggingRequest(BaseModel):
 class SummaryRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to summarize")
     company_name: str = Field(..., description="Company name for storage")
+    customer_id: str = Field(default="default", description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code for storage")
     summary_method: str = Field(
         default="map-reduce",
@@ -632,6 +636,7 @@ class SummaryRequest(BaseModel):
 class QARequest(BaseModel):
     question: str = Field(..., description="Question to ask")
     company_name: str = Field(..., description="Company name for context")
+    customer_id: str = Field(default="default", description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code")
     urls: List[str] = Field(..., description="URLs to use as context")
     llm_model: str = Field(default="gpt-4o-mini", description="LLM model to use")
@@ -732,6 +737,7 @@ async def serve_index(request: Request):
 
         # Inject VI_DEPLOY configuration and company_name if provided
         company_name = request.query_params.get("company_name", "")
+        customer_id = request.query_params.get("customer_id", "")
 
         # Add JavaScript configuration at the end of the body
         config_script = f"""
@@ -739,6 +745,7 @@ async def serve_index(request: Request):
         // VI_DEPLOY configuration
         window.VI_DEPLOY = {str(VI_DEPLOY).lower()};
         window.URL_COMPANY_NAME = "{company_name}";
+        window.URL_CUSTOMER_ID = "{customer_id}";
     </script>
 </body>"""
 
@@ -1176,6 +1183,7 @@ async def tag_news_content(request: TaggingRequest):
                         method=request.tagging_method,
                         llm_name=request.llm_model,
                         days=request.tags_save_days,
+                        customer_id=request.customer_id,
                     )
                     logger.info(f"Successfully saved {len(all_results_for_postgres)} tags to PostgreSQL schema '{postgres_store.schema}' table '{postgres_store.table_name}' (VI_DEPLOY enabled)")
                 except Exception as postgres_error:

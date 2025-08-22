@@ -142,6 +142,7 @@ class PostgreSQLTagStore:
                     create_table_query = sql.SQL("""
                         CREATE TABLE IF NOT EXISTS {} (
                             id SERIAL PRIMARY KEY,
+                            customer_id VARCHAR(64),
                             company_name VARCHAR(255) NOT NULL,
                             lang VARCHAR(10) NOT NULL,
                             url TEXT NOT NULL,
@@ -151,7 +152,7 @@ class PostgreSQLTagStore:
                             probability VARCHAR(50),
                             modified_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                             created_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                            UNIQUE(company_name, lang, url, method, llm_name)
+                            UNIQUE(customer_id, company_name, lang, url, method, llm_name)
                         )
                     """).format(self._get_qualified_table_name())
 
@@ -160,9 +161,9 @@ class PostgreSQLTagStore:
                     # Create indexes for better performance
                     index_queries = [
                         sql.SQL(
-                            "CREATE INDEX IF NOT EXISTS {} ON {} (company_name, lang)"
+                            "CREATE INDEX IF NOT EXISTS {} ON {} (customer_id, company_name, lang)"
                         ).format(
-                            sql.Identifier(f"{self.schema}_{self.table_name}_company_lang_idx"),
+                            sql.Identifier(f"{self.schema}_{self.table_name}_customer_company_lang_idx"),
                             self._get_qualified_table_name(),
                         ),
                         sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} (url)").format(
@@ -203,6 +204,7 @@ class PostgreSQLTagStore:
         method: str,
         llm_name: str,
         days: int = 0,
+        customer_id: str = None,
     ) -> None:
         """Save document tags to PostgreSQL.
 
@@ -213,6 +215,7 @@ class PostgreSQLTagStore:
             method: Tagging method used
             llm_name: Name of the LLM used for tagging
             days: Only update tags older than this many days (0 for always update)
+            customer_id: Customer identifier for multi-tenant support
 
         Raises:
             Exception: If database operation fails
@@ -220,6 +223,10 @@ class PostgreSQLTagStore:
         if not tags:
             logger.warning("Empty tags list provided to save_tags")
             return
+
+        # Use default customer_id if not provided for backward compatibility
+        if customer_id is None:
+            customer_id = "default"
 
         try:
             with _postgres_manager.get_connection() as conn:
@@ -248,11 +255,12 @@ class PostgreSQLTagStore:
                                 AND url = %s 
                                 AND method = %s 
                                 AND llm_name = %s
+                                AND customer_id = %s
                             """).format(self._get_qualified_table_name())
 
                             cursor.execute(
                                 check_query,
-                                (company_name, lang, item["url"], method, llm_name),
+                                (company_name, lang, item["url"], method, llm_name, customer_id),
                             )
                             existing_record = cursor.fetchone()
 
@@ -272,9 +280,9 @@ class PostgreSQLTagStore:
                             # Use INSERT ... ON CONFLICT for upsert functionality
                             # Only update if values are actually different
                             upsert_query = sql.SQL("""
-                                INSERT INTO {} (company_name, lang, url, method, llm_name, crime_type, probability, modified_date)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                ON CONFLICT (company_name, lang, url, method, llm_name)
+                                INSERT INTO {} (customer_id, company_name, lang, url, method, llm_name, crime_type, probability, modified_date)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (customer_id, company_name, lang, url, method, llm_name)
                                 DO UPDATE SET
                                     crime_type = EXCLUDED.crime_type,
                                     probability = EXCLUDED.probability,
@@ -291,6 +299,7 @@ class PostgreSQLTagStore:
                             cursor.execute(
                                 upsert_query,
                                 (
+                                    customer_id,
                                     company_name,
                                     lang,
                                     item["url"],
