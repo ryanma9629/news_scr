@@ -1,10 +1,10 @@
 import hashlib
 import logging
 import os
+import secrets
 import signal
 import socket
 import threading
-import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from functools import wraps
@@ -12,24 +12,18 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.sessions import SessionMiddleware
 from langchain_community.chat_models.tongyi import ChatTongyi
 from langchain_core.documents import Document
 from langchain_deepseek import ChatDeepSeek
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field, SecretStr
-
-# Load environment variables from .env file
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass  # python-dotenv not available, use system environment variables
+from starlette.middleware.sessions import SessionMiddleware
 
 from .crawler import ApifyCrawler, CrawlerType
 from .docstore import MongoStore, _mongo_manager
@@ -42,6 +36,8 @@ from .summarization import (
 )
 from .tagging import FCTagging
 from .websearch import BingSearch, GoogleSerperNews
+
+load_dotenv()
 
 # Configuration constants
 DEFAULT_CHUNK_SIZE = 2000
@@ -114,8 +110,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Log VI_DEPLOY status for debugging
-logger.info(f"VI_DEPLOY mode: {VI_DEPLOY} (from env: {os.getenv('VI_DEPLOY', 'not_set')})")
 
 # Suppress noisy asyncio connection reset errors on Windows
 logging.getLogger("asyncio").setLevel(logging.CRITICAL)
@@ -1021,12 +1015,6 @@ async def tag_news_content(request: TaggingRequest):
     try:
         session_id = request.session_id
         
-        # Debug logging for customer_id
-        logger.info(f"Tagging request received with customer_id: '{request.customer_id}' (type: {type(request.customer_id)}) (VI_DEPLOY: {VI_DEPLOY})")
-        logger.info(f"Customer_id is None: {request.customer_id is None}")
-        logger.info(f"Customer_id is empty string: {request.customer_id == ''}")
-        logger.info(f"Customer_id is falsy: {not request.customer_id}")
-
         # Validate LLM model
         try:
             deployment = validate_llm_deployment(request.llm_model)
@@ -1212,9 +1200,7 @@ async def tag_news_content(request: TaggingRequest):
                     logger.info(f"Successfully saved {len(all_results_for_postgres)} tags to PostgreSQL schema '{postgres_store.schema}' table '{postgres_store.table_name}' (VI_DEPLOY enabled)")
                 except Exception as postgres_error:
                     logger.error(f"Failed to save tags to PostgreSQL: {postgres_error}")
-                    # Continue execution even if PostgreSQL save fails
-        else:
-            logger.debug("PostgreSQL saving skipped (VI_DEPLOY is disabled)")
+
 
         success_count = sum(1 for r in results if r.success)
         return TaggingResponse(
