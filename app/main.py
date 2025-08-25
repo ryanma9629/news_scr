@@ -641,12 +641,33 @@ async def search_news(http_request: Request, request: SearchRequest):
         if not search_engine:
             raise HTTPException(status_code=400, detail=f"Unsupported search engine: {request.search_engine}")
 
-        results = search_engine.search(keywords, request.num_results)
-
-        if results is None:
+        # Perform search with better error handling
+        try:
+            results = search_engine.search(keywords, request.num_results)
+        except Exception as search_error:
+            # This is definitely an API/network error
+            logger.error(f"Search engine error: {search_error}")
             return SearchResponse(
                 success=False, results=[], total_results=0,
-                message="Search failed, please check network connection or API configuration", session_id=session_id
+                message="Search failed due to network connection or API configuration issues. Please try again later or contact support.",
+                session_id=session_id
+            )
+
+        # Handle different result scenarios
+        if results is None or len(results) == 0:
+            # Either no results found or API returned None/empty list
+            # Since we can't distinguish, assume it's "no results found" for better UX
+            search_topic_map = {
+                "negative": "negative news",
+                "crime": "criminal suspect news", 
+                "everything": "news articles"
+            }
+            search_topic = search_topic_map.get(request.search_suffix, "news articles")
+            
+            return SearchResponse(
+                success=True, results=[], total_results=0,
+                message=f"No {search_topic} found for '{request.company_name}'. Try using different search terms, changing the search topic, or checking the spelling.",
+                session_id=session_id
             )
 
         search_results = [SearchResultResponse(url=result["url"], title=result["title"]) for result in results]

@@ -10,11 +10,22 @@
     <link href="/static/css/news_scr.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <style>
+        /* Hide navbar when VI_DEPLOY is enabled */
+        .vi-deploy-hide-navbar {
+            display: none !important;
+        }
+        
+        /* Adjust container padding when navbar is hidden */
+        .vi-deploy-no-navbar {
+            padding-top: 1rem !important;
+        }
+    </style>
 </head>
 
 <body>
     <!-- Professional Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+    <nav id="main-navbar" class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
         <div class="container-fluid">
             <a class="navbar-brand d-flex align-items-center" href="#">
                 <i class="bi bi-shield-check me-2"></i>
@@ -29,7 +40,7 @@
         </div>
     </nav>
 
-    <div class="container-fluid py-4">
+    <div id="main-container" class="container-fluid py-4">
         <div class="row g-4">
             <!-- Search Form Column -->
             <div class="col-lg-3">
@@ -511,6 +522,23 @@
 
     <!-- Load JavaScript at the end for better performance -->
     <script src="/static/js/news_scr.js"></script>
+    
+    <script>
+        // Hide navbar and adjust layout when VI_DEPLOY is enabled
+        document.addEventListener('DOMContentLoaded', function() {
+            if (window.VI_DEPLOY === true) {
+                const navbar = document.getElementById('main-navbar');
+                const container = document.getElementById('main-container');
+                
+                if (navbar) {
+                    navbar.classList.add('vi-deploy-hide-navbar');
+                }
+                if (container) {
+                    container.classList.add('vi-deploy-no-navbar');
+                }
+            }
+        });
+    </script>
 </body>
 
 </html>
