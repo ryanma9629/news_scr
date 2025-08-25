@@ -73,7 +73,7 @@ start() {
     docker-compose -f docker/docker-compose.yml up -d
     
     print_success "Application started successfully!"
-    print_info "Access the application at: http://localhost:8280"
+    print_info "Access the application at: https://localhost:8280"
 }
 
 # Stop the application
