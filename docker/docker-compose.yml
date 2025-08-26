@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   adverse-news-screening:
     build:
@@ -17,6 +15,8 @@ services:
     volumes:
       - ../config/ssl/cert.pem:/app/cert.pem:ro
       - ../config/ssl/key.pem:/app/key.pem:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       mongodb:
         condition: service_healthy
