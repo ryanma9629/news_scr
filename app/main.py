@@ -299,8 +299,114 @@ class QAResponse(BaseModel):
     message: str
 
 # =============================================================================
-# UTILITY FUNCTIONS
+# UTILITY FUNCTIONS AND MANAGERS
 # =============================================================================
+
+class ContentManager:
+    """Unified content loading and validation manager."""
+    
+    @staticmethod
+    def get_from_session_with_validation(session_id: str, urls: List[str], operation_name: str):
+        """Get contents from session with comprehensive validation."""
+        session_data = get_session_data(session_id)
+        session_contents = session_data.get("web_contents", {})
+        contents = []
+        missing_urls = []
+
+        for url in urls:
+            if url in session_contents:
+                contents.append({"url": url, "text": session_contents[url]})
+            else:
+                missing_urls.append(url)
+
+        if not contents:
+            return [], missing_urls, f"Content not found for {operation_name}. Please get content first."
+        return contents, missing_urls, None
+
+    @staticmethod
+    def load_with_fallback(mongo_store: MongoStore, urls: List[str], session_id: str, days: int = 0) -> Tuple[List[Dict[str, str]], List[str]]:
+        """Load contents from storage with session fallback."""
+        session_data = get_session_data(session_id)
+        session_contents = session_data.get("web_contents", {})
+        contents = []
+        missing_urls = []
+
+        for url in urls:
+            if url in session_contents:
+                contents.append({"url": url, "text": session_contents[url]})
+            else:
+                missing_urls.append(url)
+
+        if missing_urls:
+            try:
+                fallback_contents = mongo_store.load_contents(missing_urls, days=days)
+                contents.extend(fallback_contents)
+                fallback_urls = {content["url"] for content in fallback_contents}
+                missing_urls = [url for url in missing_urls if url not in fallback_urls]
+            except Exception as e:
+                logger.error(f"Error loading from MongoDB: {e}")
+
+        return contents, missing_urls
+
+class ValidationManager:
+    """Unified validation manager for common request validations."""
+    
+    @staticmethod
+    def validate_session_and_urls(session_id: Optional[str], urls: List[str], operation_name: str):
+        """Centralized validation for session ID and URLs."""
+        if not session_id:
+            return False, f"Session is required. Please search for news and get content first, then try {operation_name} again."
+        if not urls:
+            return False, f"No URLs provided for {operation_name}"
+        return True, ""
+    
+    @staticmethod
+    def validate_llm_deployment(llm_model: str) -> str:
+        """Validate and return the correct deployment name for the given LLM model."""
+        if llm_model not in SUPPORTED_LLM_DEPLOYMENTS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported LLM model: {llm_model}. Supported models: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}",
+            )
+        return SUPPORTED_LLM_DEPLOYMENTS[llm_model]
+
+class StorageManager:
+    """Unified storage operations manager."""
+    
+    @staticmethod
+    def handle_operation(operation_func, operation_name: str, *args, **kwargs):
+        """Generic handler for storage operations with error handling."""
+        try:
+            return operation_func(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"Error {operation_name}: {e}")
+            return None
+
+class ResponseManager:
+    """Unified response creation manager."""
+    
+    @staticmethod
+    def create_error_response(response_class, urls: List[str], error_message: str, **kwargs):
+        """Create standardized error responses."""
+        if hasattr(response_class, 'model_fields') and 'results' in response_class.model_fields:
+            # For responses with results (like TaggingResponse, CrawlerResponse)
+            failed_results = []
+            for url in urls:
+                if response_class.__name__ == 'TaggingResponse':
+                    failed_results.append(TaggingResultResponse(
+                        url=url, success=False, error=error_message, crime_type=None, probability=None
+                    ))
+                elif response_class.__name__ == 'CrawlerResponse':
+                    failed_results.append(CrawlerResultResponse(
+                        url=url, success=False, error=error_message, content=None
+                    ))
+            return response_class(
+                success=False, results=failed_results, total_results=len(failed_results), 
+                message=error_message, **kwargs
+            )
+        else:
+            # For simple responses (like SummaryResponse, QAResponse)
+            return response_class(success=False, message=error_message, **kwargs)
 
 def require_session(strict: bool = True):
     """Decorator to validate session requirement and cleanup expired sessions."""
@@ -319,6 +425,33 @@ def require_session(strict: bool = True):
         return wrapper
     return decorator
 
+def handle_api_errors(response_class):
+    """Decorator to handle common API errors and responses."""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            try:
+                return await func(*args, **kwargs)
+            except HTTPException as he:
+                # Re-raise HTTP exceptions
+                raise he
+            except Exception as e:
+                logger.error(f"API error in {func.__name__}: {e}")
+                # Extract request object to get URLs for error response
+                request = None
+                for arg in args:
+                    if hasattr(arg, "urls"):
+                        request = arg
+                        break
+                
+                urls = getattr(request, 'urls', []) if request else []
+                return ResponseManager.create_error_response(
+                    response_class, urls, f"System error: {e}"
+                )
+        return wrapper
+    return decorator
+
+# Essential utility functions
 def generate_session_id(ip: str, user_agent: str = "") -> str:
     """Generate session ID based on client info and timestamp."""
     timestamp = str(datetime.now().timestamp())
@@ -348,13 +481,14 @@ def set_session_cookie(response: Response, session_id: str, max_age: int = SESSI
     response.set_cookie(**cookie_kwargs)
     return response
 
-def create_json_response_with_cookies(data: dict, session_id: str = None) -> JSONResponse:
+def create_json_response_with_cookies(data: dict, session_id: Optional[str] = None) -> JSONResponse:
     """Create a JSON response with proper cookie settings."""
     response = JSONResponse(content=data)
     if session_id:
         set_session_cookie(response, session_id)
     return response
 
+# Essential utility functions (restored)
 def init_llm_and_embeddings(deployment: str = "gpt-4o", model: str = "gpt-4o"):
     """Initialize LLM and embeddings with common configuration."""
     if deployment not in SUPPORTED_LLM_DEPLOYMENTS:
@@ -376,15 +510,6 @@ def init_llm_and_embeddings(deployment: str = "gpt-4o", model: str = "gpt-4o"):
 
     return llm, emb
 
-def validate_llm_deployment(llm_model: str) -> str:
-    """Validate and return the correct deployment name for the given LLM model."""
-    if llm_model not in SUPPORTED_LLM_DEPLOYMENTS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported LLM model: {llm_model}. Supported models: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}",
-        )
-    return SUPPORTED_LLM_DEPLOYMENTS[llm_model]
-
 def get_search_keywords(company_name: str, search_suffix: str, lang: str) -> str:
     """Generate search keywords based on company name, suffix, and language."""
     base_keywords = company_name
@@ -404,62 +529,26 @@ def get_search_engine(engine_name: str, lang: str):
         return BingSearch(lang=display_lang)
     return None
 
+# Use manager functions but provide backward compatibility
+def validate_llm_deployment(llm_model: str) -> str:
+    """Validate and return the correct deployment name for the given LLM model."""
+    return ValidationManager.validate_llm_deployment(llm_model)
+
 def validate_session_and_urls(session_id: Optional[str], urls: List[str], operation_name: str):
     """Centralized validation for session ID and URLs."""
-    if not session_id:
-        return False, f"Session is required. Please search for news and get content first, then try {operation_name} again."
-    if not urls:
-        return False, f"No URLs provided for {operation_name}"
-    return True, ""
+    return ValidationManager.validate_session_and_urls(session_id, urls, operation_name)
 
 def get_contents_from_session_with_validation(session_id: str, urls: List[str], operation_name: str):
     """Get contents from session with comprehensive validation."""
-    session_data = get_session_data(session_id)
-    session_contents = session_data.get("web_contents", {})
-    contents = []
-    missing_urls = []
-
-    for url in urls:
-        if url in session_contents:
-            contents.append({"url": url, "text": session_contents[url]})
-        else:
-            missing_urls.append(url)
-
-    if not contents:
-        return [], missing_urls, f"Content not found for {operation_name}. Please get content first."
-    return contents, missing_urls, None
+    return ContentManager.get_from_session_with_validation(session_id, urls, operation_name)
 
 def load_from_storage_with_fallback(mongo_store: MongoStore, urls: List[str], session_id: str, days: int = 0) -> Tuple[List[Dict[str, str]], List[str]]:
     """Load contents from storage with session fallback."""
-    session_data = get_session_data(session_id)
-    session_contents = session_data.get("web_contents", {})
-    contents = []
-    missing_urls = []
-
-    for url in urls:
-        if url in session_contents:
-            contents.append({"url": url, "text": session_contents[url]})
-        else:
-            missing_urls.append(url)
-
-    if missing_urls:
-        try:
-            fallback_contents = mongo_store.load_contents(missing_urls, days=days)
-            contents.extend(fallback_contents)
-            fallback_urls = {content["url"] for content in fallback_contents}
-            missing_urls = [url for url in missing_urls if url not in fallback_urls]
-        except Exception as e:
-            logger.error(f"Error loading from MongoDB: {e}")
-
-    return contents, missing_urls
+    return ContentManager.load_with_fallback(mongo_store, urls, session_id, days)
 
 def handle_storage_operation(operation_func, operation_name: str, *args, **kwargs):
     """Generic handler for storage operations with error handling."""
-    try:
-        return operation_func(*args, **kwargs)
-    except Exception as e:
-        logger.error(f"Error {operation_name}: {e}")
-        return None
+    return StorageManager.handle_operation(operation_func, operation_name, *args, **kwargs)
 
 def check_port_availability(port: int) -> bool:
     """Check if a port is available."""
@@ -516,7 +605,7 @@ def setup_app_configuration():
         SessionMiddleware,
         secret_key=SESSION_SECRET_KEY,
         max_age=SESSION_MAX_AGE,
-        same_site=COOKIE_SAMESITE,
+        same_site=COOKIE_SAMESITE.lower(),  # type: ignore
         https_only=COOKIE_SECURE,
         domain=COOKIE_DOMAIN if COOKIE_DOMAIN else None,
     )
@@ -606,8 +695,6 @@ async def serve_index(request: Request):
         html_content = index_path.read_text(encoding="utf-8")
         company_name = request.query_params.get("company_name", "")
         customer_id = request.query_params.get("customer_id", "")
-        
-        logger.info(f"Root endpoint called with company_name: '{company_name}', customer_id: '{customer_id}', VI_DEPLOY: {VI_DEPLOY}")
 
         config_script = f"""
     <script>
@@ -623,6 +710,7 @@ async def serve_index(request: Request):
 
 @app.post("/api/search", response_model=SearchResponse)
 @require_session(strict=False)
+@handle_api_errors(SearchResponse)
 async def search_news(http_request: Request, request: SearchRequest):
     """Search for news articles based on company name and parameters."""
     try:
@@ -700,6 +788,7 @@ async def search_news(http_request: Request, request: SearchRequest):
 
 @app.post("/api/crawler", response_model=CrawlerResponse)
 @require_session(strict=False)
+@handle_api_errors(CrawlerResponse)
 async def crawl_news_content(request: CrawlerRequest):
     """Crawl content from news URLs using ApifyCrawler with storage and session support."""
     try:
@@ -769,6 +858,7 @@ async def crawl_news_content(request: CrawlerRequest):
 
 @app.post("/api/tagging", response_model=TaggingResponse)
 @require_session(strict=False)
+@handle_api_errors(TaggingResponse)
 async def tag_news_content(request: TaggingRequest):
     """Perform FC Tagging on news content with storage and session support."""
     try:
@@ -859,19 +949,14 @@ async def tag_news_content(request: TaggingRequest):
             if all_results_for_postgres:
                 try:
                     postgres_store = PostgreSQLTagStore()
-                    from .postgres_store import _postgres_manager
-                    conn_params = _postgres_manager.get_connection_params()
-                    logger.info(f"Connecting to PostgreSQL database '{conn_params['database']}' schema '{postgres_store.schema}' on {conn_params['host']}:{conn_params['port']}")
                     
                     effective_customer_id = request.customer_id if request.customer_id else "default"
-                    logger.info(f"Saving to PostgreSQL with customer_id: '{effective_customer_id}'")
                     
                     postgres_store.save_tags(
                         all_results_for_postgres, company_name=request.company_name, lang=request.lang,
                         method=request.tagging_method, llm_name=request.llm_model,
                         days=request.tags_save_days, customer_id=effective_customer_id
                     )
-                    logger.info(f"Successfully saved {len(all_results_for_postgres)} tags to PostgreSQL")
                 except Exception as postgres_error:
                     logger.error(f"Failed to save tags to PostgreSQL: {postgres_error}")
 
@@ -888,6 +973,7 @@ async def tag_news_content(request: TaggingRequest):
 
 @app.post("/api/summary", response_model=SummaryResponse)
 @require_session(strict=False)
+@handle_api_errors(SummaryResponse)
 async def summarize_news_content(request: SummaryRequest):
     """Perform summarization on news content from session."""
     try:
@@ -935,6 +1021,7 @@ async def summarize_news_content(request: SummaryRequest):
 
 @app.post("/api/qa", response_model=QAResponse)
 @require_session(strict=False)
+@handle_api_errors(QAResponse)
 async def qa_endpoint(request: QARequest):
     """Process QA request with context from session."""
     try:
