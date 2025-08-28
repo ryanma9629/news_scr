@@ -138,6 +138,14 @@ class PostgreSQLTagStore:
                         cursor.execute(create_schema_query)
                         logger.info(f"Schema '{self.schema}' created or already exists")
 
+                    # Check if table exists and get column information
+                    check_table_query = sql.SQL("""
+                        SELECT column_name FROM information_schema.columns 
+                        WHERE table_schema = %s AND table_name = %s
+                    """)
+                    cursor.execute(check_table_query, (self.schema, self.table_name))
+                    existing_columns = {row[0] for row in cursor.fetchall()}
+
                     # Create table if it doesn't exist
                     create_table_query = sql.SQL("""
                         CREATE TABLE IF NOT EXISTS {} (
@@ -146,6 +154,7 @@ class PostgreSQLTagStore:
                             company_name VARCHAR(255) NOT NULL,
                             lang VARCHAR(10) NOT NULL,
                             url TEXT NOT NULL,
+                            title TEXT,
                             method VARCHAR(50) NOT NULL,
                             llm_name VARCHAR(100) NOT NULL,
                             crime_type VARCHAR(255),
@@ -157,6 +166,14 @@ class PostgreSQLTagStore:
                     """).format(self._get_qualified_table_name())
 
                     cursor.execute(create_table_query)
+
+                    # Check if table exists now and add title column if missing
+                    if existing_columns and 'title' not in existing_columns:
+                        logger.info("Adding title column to existing table")
+                        add_title_column_query = sql.SQL("""
+                            ALTER TABLE {} ADD COLUMN title TEXT
+                        """).format(self._get_qualified_table_name())
+                        cursor.execute(add_title_column_query)
 
                     # Create indexes for better performance
                     index_queries = [
@@ -282,17 +299,20 @@ class PostgreSQLTagStore:
                             # Use INSERT ... ON CONFLICT for upsert functionality
                             # Only update if values are actually different
                             upsert_query = sql.SQL("""
-                                INSERT INTO {} (customer_id, company_name, lang, url, method, llm_name, crime_type, probability, modified_date)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                INSERT INTO {} (customer_id, company_name, lang, url, title, method, llm_name, crime_type, probability, modified_date)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON CONFLICT (customer_id, company_name, lang, url, method, llm_name)
                                 DO UPDATE SET
+                                    title = EXCLUDED.title,
                                     crime_type = EXCLUDED.crime_type,
                                     probability = EXCLUDED.probability,
                                     modified_date = EXCLUDED.modified_date
                                 WHERE 
+                                    {}.title IS DISTINCT FROM EXCLUDED.title OR
                                     {}.crime_type IS DISTINCT FROM EXCLUDED.crime_type OR
                                     {}.probability IS DISTINCT FROM EXCLUDED.probability
                             """).format(
+                                self._get_qualified_table_name(),
                                 self._get_qualified_table_name(),
                                 self._get_qualified_table_name(),
                                 self._get_qualified_table_name(),
@@ -305,6 +325,7 @@ class PostgreSQLTagStore:
                                     company_name,
                                     lang,
                                     item["url"],
+                                    item.get("title"),
                                     method,
                                     llm_name,
                                     item["crime_type"],
@@ -361,7 +382,7 @@ class PostgreSQLTagStore:
                     url_placeholders = ",".join(["%s"] * len(urls))
 
                     query_parts = [
-                        sql.SQL("SELECT url, crime_type, probability FROM {}").format(
+                        sql.SQL("SELECT url, title, crime_type, probability FROM {}").format(
                             self._get_qualified_table_name()
                         ),
                         sql.SQL("WHERE LOWER(company_name) = LOWER(%s)"),

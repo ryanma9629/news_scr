@@ -937,14 +937,30 @@ async def tag_news_content(request: TaggingRequest):
 
         # Save ALL results to PostgreSQL when VI_DEPLOY is enabled
         if VI_DEPLOY:
+            # Get URL to title mapping from session
+            url_title_mapping = get_url_title_mapping(session_id or "")
+            
             all_results_for_postgres = []
             for tag in tags_from_db:
-                all_results_for_postgres.append({
-                    "url": tag["url"], "crime_type": tag.get("crime_type"),
-                    "probability": tag.get("probability"), "method": request.tagging_method
-                })
+                tag_with_title = {
+                    "url": tag["url"],
+                    "title": url_title_mapping.get(tag["url"]),
+                    "crime_type": tag.get("crime_type"),
+                    "probability": tag.get("probability"),
+                    "method": request.tagging_method
+                }
+                all_results_for_postgres.append(tag_with_title)
+                
             if 'tagged_results' in locals():
-                all_results_for_postgres.extend(tagged_results)
+                for tag in tagged_results:
+                    tag_with_title = {
+                        "url": tag["url"],
+                        "title": url_title_mapping.get(tag["url"]),
+                        "crime_type": tag.get("crime_type"),
+                        "probability": tag.get("probability"),
+                        "method": tag["method"]
+                    }
+                    all_results_for_postgres.append(tag_with_title)
             
             if all_results_for_postgres:
                 try:
@@ -1073,6 +1089,12 @@ async def health_check():
 project_root = Path(__file__).parent.parent
 static_dir = project_root / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+def get_url_title_mapping(session_id: str) -> dict:
+    """Get URL to title mapping from session search results."""
+    session_data = get_session_data(session_id)
+    search_results = session_data.get("search_results", [])
+    return {result["url"]: result["title"] for result in search_results if "url" in result and "title" in result}
 
 if __name__ == "__main__":
     def signal_handler(signum, frame):

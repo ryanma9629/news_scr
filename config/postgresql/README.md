@@ -60,6 +60,11 @@ psql -U news_app -d adverse_news_screening
 \q
 ```
 
+**For existing databases:** If you have an existing database without the title column, run the migration script:
+```bash
+psql -U news_app -d adverse_news_screening -f config/postgresql/migrate-add-title.sql
+```
+
 ### 4. Configure Environment Variables
 
 Update your `.env` file with PostgreSQL connection details:
@@ -81,16 +86,18 @@ The application uses the following table structure for storing tagging results:
 ```sql
 CREATE TABLE fc_tags (
     id SERIAL PRIMARY KEY,
+    customer_id VARCHAR(64) NOT NULL,
     company_name VARCHAR(255) NOT NULL,
     lang VARCHAR(10) NOT NULL,
     url TEXT NOT NULL,
+    title TEXT,
     method VARCHAR(50) NOT NULL,
     llm_name VARCHAR(100) NOT NULL,
     crime_type VARCHAR(255),
     probability VARCHAR(50),
     modified_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(company_name, lang, url, method, llm_name)
+    UNIQUE(customer_id, company_name, lang, url, method, llm_name)
 );
 ```
 
@@ -124,13 +131,13 @@ GROUP BY crime_type, probability
 ORDER BY count DESC;
 ```
 
-### Company-specific analysis:
+### Company-specific analysis with article titles:
 ```sql
-SELECT company_name, lang, crime_type, COUNT(*) as articles
+SELECT company_name, lang, title, url, crime_type, probability, modified_date
 FROM fc_tags 
 WHERE company_name ILIKE '%company_name%'
-GROUP BY company_name, lang, crime_type
-ORDER BY articles DESC;
+ORDER BY modified_date DESC
+LIMIT 20;
 ```
 
 ## Backup and Maintenance
