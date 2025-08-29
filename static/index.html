@@ -192,36 +192,40 @@
                             </div>
                             <div class="modal-body">
                                 <form id="frm_crawler">
-                                    <!-- Crawler Type Selection -->
+                                    <!-- Crawler Selection -->
                                     <div class="row mb-3">
                                         <div class="col-12">
                                             <div class="card">
                                                 <div class="card-header">
-                                                    <h6 class="mb-0">Crawler Settings</h6>
+                                                    <h6 class="mb-0">Crawler Selection</h6>
                                                 </div>
                                                 <div class="card-body">
-                                                    <div class="mb-2">
+                                                    <div class="mb-3">
+                                                        <label for="crawler_engine" class="form-label">
+                                                            Crawler Engine:
+                                                        </label>
+                                                        <select id="crawler_engine" class="form-select" onchange="toggleApifyOptions()">
+                                                            <option value="apify" selected>Apify (Cloud-based)</option>
+                                                            <option value="crawl4ai">Crawl4AI (Local)</option>
+                                                        </select>
+                                                    </div>
+                                                    
+                                                    <!-- Apify-specific options -->
+                                                    <div id="apify_options" class="mb-2">
                                                         <label for="crawler_type" class="form-label">
-                                                            Crawler Type:
+                                                            Apify Crawler Type:
                                                         </label>
                                                         <select id="crawler_type" class="form-select">
                                                             <option value="cheerio" selected>Raw HTTP client (fast)</option>
-                                                            <option value="playwright:adaptive">Adaptive
-                                                                switching</option>
-                                                            <option value="playwright:firefox">Web browser (firefox)
-                                                            </option>
-                                                            <option value="playwright:chrome">Web browser (chrome)
-                                                            </option>
+                                                            <option value="playwright:adaptive">Adaptive switching</option>
+                                                            <option value="playwright:firefox">Web browser (firefox)</option>
+                                                            <option value="playwright:chrome">Web browser (chrome)</option>
                                                         </select>
                                                         <div class="form-text">
                                                             <small>
-                                                                <strong>Raw HTTP client:</strong> High-performance
-                                                                crawling mode that uses raw HTTP requests<br>
-                                                                <strong>Adaptive:</strong> Automatically switches
-                                                                between raw HTTP for static pages and Chrome browser
-                                                                (via Playwright) for dynamic pages <br>
-                                                                <strong>Web browsers:</strong> Headless web browser with
-                                                                anti-blocking measures enabled
+                                                                <strong>Raw HTTP client:</strong> High-performance crawling mode that uses raw HTTP requests<br>
+                                                                <strong>Adaptive:</strong> Automatically switches between raw HTTP for static pages and Chrome browser (via Playwright) for dynamic pages<br>
+                                                                <strong>Web browsers:</strong> Headless web browser with anti-blocking measures enabled
                                                             </small>
                                                         </div>
                                                     </div>
@@ -538,6 +542,18 @@
                 }
             }
         });
+        
+        // Toggle Apify options based on selected engine
+        function toggleApifyOptions() {
+            const crawlerEngine = document.getElementById('crawler_engine').value;
+            const apifyOptions = document.getElementById('apify_options');
+            
+            if (crawlerEngine === 'apify') {
+                apifyOptions.style.display = 'block';
+            } else {
+                apifyOptions.style.display = 'none';
+            }
+        }
     </script>
 </body>
 

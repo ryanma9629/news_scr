@@ -28,7 +28,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field, SecretStr
 from starlette.middleware.sessions import SessionMiddleware
 
-from .crawler import ApifyCrawler, CrawlerType
+from .crawler import ApifyCrawler, Crawl4AICrawler, CrawlerType
 from .docstore import MongoStore, _mongo_manager
 from .postgres_store import PostgreSQLTagStore
 from .query import QAWithContext
@@ -205,7 +205,8 @@ class SearchRequest(BaseModel):
 
 class CrawlerRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to crawl")
-    crawler_type: CrawlerType = Field(default="playwright:adaptive", description="Crawler type")
+    crawler_engine: str = Field(default="apify", description="Crawler engine ('apify' or 'crawl4ai')")
+    crawler_type: Optional[CrawlerType] = Field(default="cheerio", description="Crawler type (only for Apify)")
     company_name: str = Field(..., description="Company name for storage")
     customer_id: Optional[str] = Field(None, description="Customer identifier for multi-tenant support")
     lang: str = Field(..., description="Language code for storage")
@@ -817,9 +818,19 @@ async def crawl_news_content(request: CrawlerRequest):
         # Crawl remaining URLs
         crawled_contents = []
         if urls_to_crawl:
-            crawler = ApifyCrawler()
             try:
-                documents = await crawler.get(urls_to_crawl, crawler_type=request.crawler_type)
+                # Create appropriate crawler based on engine selection
+                if request.crawler_engine.lower() == "crawl4ai":
+                    crawler = Crawl4AICrawler()
+                    # Crawl4AI doesn't use crawler_type parameter
+                    documents = await crawler.get(urls_to_crawl)
+                else:
+                    # Default to Apify crawler
+                    crawler = ApifyCrawler()
+                    # Use crawler_type only for Apify
+                    crawler_type = request.crawler_type or "cheerio"
+                    documents = await crawler.get(urls_to_crawl, crawler_type=crawler_type)
+                
                 url_to_doc = {doc.metadata.get("source", ""): doc for doc in documents if doc.metadata.get("source")}
 
                 for url in urls_to_crawl:

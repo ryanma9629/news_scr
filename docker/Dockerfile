@@ -18,6 +18,22 @@ RUN apt-get update && apt-get install -y \
     curl \
     libpq-dev \
     postgresql-client \
+    wget \
+    gnupg \
+    git \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libxss1 \
+    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -26,6 +42,10 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Setup crawl4ai and install Playwright browsers
+RUN crawl4ai-setup && \
+    playwright install --with-deps chromium
+
 # Copy application code
 COPY app/ ./app/
 COPY static/ ./static/
@@ -33,7 +53,7 @@ COPY config/ ./config/
 
 # Create a non-root user for security
 RUN adduser --disabled-password --gecos '' --shell /bin/bash appuser && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /app 
 USER appuser
 
 # Expose port
