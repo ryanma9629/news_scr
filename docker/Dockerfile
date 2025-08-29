@@ -40,6 +40,8 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # Install Python dependencies
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple
+RUN pip config set install.trusted-host mirrors.aliyun.com
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Setup crawl4ai and install Playwright browsers

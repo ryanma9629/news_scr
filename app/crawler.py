@@ -332,7 +332,7 @@ class Crawl4AICrawler(Crawler):
 
                         result = await crawler.arun(**run_kwargs)
 
-                        if result.success and result.status_code == 200:
+                        if result.success:
                             content = result.markdown or ""
 
                             # Only add documents with actual content
