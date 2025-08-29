@@ -119,15 +119,19 @@ Passage:
         # Check if the LLM supports strict mode (Azure OpenAI models do, but Qwen/ChatTongyi doesn't)
         try:
             # Try with strict=True first (for models that support it like Azure OpenAI)
-            self.tagging_llm = self.llm.with_structured_output(FinancialCrime, strict=True)
+            self.tagging_llm = self.llm.with_structured_output(
+                FinancialCrime, strict=True
+            )
         except (TypeError, ValueError) as e:
             # Fall back to without strict mode for models that don't support it (like Qwen)
             if "strict" in str(e):
-                logger.info(f"LLM doesn't support strict mode, falling back to non-strict: {type(self.llm).__name__}")
+                logger.info(
+                    f"LLM doesn't support strict mode, falling back to non-strict: {type(self.llm).__name__}"
+                )
                 self.tagging_llm = self.llm.with_structured_output(FinancialCrime)
             else:
                 raise e
-        
+
         self.tagging_chain = self.TAGGING_PROMPT | self.tagging_llm
 
     def _validate_tags(self, tags: List) -> None:

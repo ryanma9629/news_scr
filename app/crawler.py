@@ -1,24 +1,3 @@
-"""
-Web crawler implementations for document retrieval.
-
-This module provides multiple crawler implementations:
-- ApifyCrawler: Uses Apify platform for web scraping
-- Crawl4AICrawler: Uses Crawl4AI library for web scraping
-
-Usage:
-    # Using Apify crawler
-    apify_crawler = ApifyCrawler()
-    docs = await apify_crawler.get(urls, crawler_type="cheerio")
-
-    # Using Crawl4AI crawler
-    crawl4ai_crawler = Crawl4AICrawler(verbose=True)
-    docs = await crawl4ai_crawler.get(urls)
-
-    # Using factory function
-    crawler = create_crawler("crawl4ai", verbose=True)
-    docs = await crawler.get(urls)
-"""
-
 import asyncio
 import logging
 import sys
@@ -374,28 +353,6 @@ class Crawl4AICrawler(Crawler):
             logger.error(f"Crawl4AI crawler with custom config failed: {str(e)}")
             raise
 
-
-def create_crawler(crawler_type: str = "apify", **kwargs) -> Crawler:
-    """Factory function to create different types of crawlers.
-
-    Args:
-        crawler_type: Type of crawler to create ("apify" or "crawl4ai")
-        **kwargs: Additional arguments to pass to the crawler constructor
-
-    Returns:
-        Crawler instance
-
-    Raises:
-        ValueError: If invalid crawler_type is provided
-    """
-    if crawler_type.lower() == "apify":
-        return ApifyCrawler(**kwargs)
-    elif crawler_type.lower() == "crawl4ai":
-        return Crawl4AICrawler(**kwargs)
-    else:
-        raise ValueError(
-            f"Unknown crawler type: {crawler_type}. Supported types: 'apify', 'crawl4ai'"
-        )
 
 
 if __name__ == "__main__":

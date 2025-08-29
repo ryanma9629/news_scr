@@ -189,23 +189,25 @@ class QAWithContext(QA):
                             state["question"], k=k, filter=filter_dict
                         ),
                     )
-                
+
                 # Extract unique URLs from document metadata
                 urls = []
                 seen_urls = set()
                 for doc in retrieved_docs:
                     # Try different common metadata keys for URL
                     url = (
-                        doc.metadata.get("source") or 
-                        doc.metadata.get("url") or 
-                        doc.metadata.get("link") or
-                        doc.metadata.get("source_url")
+                        doc.metadata.get("source")
+                        or doc.metadata.get("url")
+                        or doc.metadata.get("link")
+                        or doc.metadata.get("source_url")
                     )
                     if url and url not in seen_urls:
                         urls.append(url)
                         seen_urls.add(url)
-                
-                logger.info(f"Retrieved {len(retrieved_docs)} documents from {len(urls)} unique sources")
+
+                logger.info(
+                    f"Retrieved {len(retrieved_docs)} documents from {len(urls)} unique sources"
+                )
                 return {"context": retrieved_docs, "urls": urls}
             except Exception as e:
                 logger.error(f"Error during document retrieval: {e}")
