@@ -19,10 +19,10 @@ logger = logging.getLogger(__name__)
 
 class MongoConnectionManager:
     """Singleton MongoDB connection manager with connection pooling for thread safety."""
-
+    
     _instance = None
     _lock = threading.Lock()
-
+    
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
@@ -30,51 +30,49 @@ class MongoConnectionManager:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-
+    
     def __init__(self):
         if not self._initialized:
             self._client = None
             self._uri = None
             self._initialized = True
-
+    
     def get_client(self, uri: Optional[str] = None) -> MongoClient:
         """Get or create MongoDB client with connection pooling.
-
+        
         Args:
             uri: MongoDB URI string
-
+            
         Returns:
             MongoClient instance with connection pooling
         """
         if uri is None:
             uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-
+            
         # If client doesn't exist or URI changed, create new client
         if self._client is None or self._uri != uri:
             with self._lock:
                 if self._client is None or self._uri != uri:
                     if self._client:
                         self._client.close()
-
+                    
                     # Configure connection pooling for concurrent access
                     self._client = MongoClient(
                         uri,
                         maxPoolSize=20,  # Maximum number of connections in the pool
-                        minPoolSize=5,  # Minimum number of connections in the pool
+                        minPoolSize=5,   # Minimum number of connections in the pool
                         maxIdleTimeMS=30000,  # Close connections after 30 seconds of inactivity
                         waitQueueTimeoutMS=5000,  # Wait 5 seconds for a connection from pool
                         serverSelectionTimeoutMS=5000,  # Wait 5 seconds for server selection
                         connectTimeoutMS=10000,  # 10 second connection timeout
-                        socketTimeoutMS=20000,  # 20 second socket timeout
+                        socketTimeoutMS=20000,   # 20 second socket timeout
                         heartbeatFrequencyMS=10000,  # Heartbeat every 10 seconds
                     )
                     self._uri = uri
-                    logger.info(
-                        f"MongoDB client created with connection pooling: {uri}"
-                    )
-
+                    logger.info(f"MongoDB client created with connection pooling: {uri}")
+        
         return self._client
-
+    
     def close(self):
         """Close the MongoDB client connection."""
         with self._lock:
@@ -179,13 +177,11 @@ class MongoStore(DocStore):
         if client:
             self.client = client
             self._owns_client = True  # We own this client and can close it
-            logger.warning(
-                "Using provided MongoDB client - connection pooling not available"
-            )
+            logger.warning("Using provided MongoDB client - connection pooling not available")
         else:
             self.client = _mongo_manager.get_client()
             self._owns_client = False  # Connection manager owns the client
-
+            
         # Use provided db name or get from environment variable
         self.db = db or os.getenv("MONGO_DB", "adverse_news_screening")
         logger.info(
@@ -240,9 +236,7 @@ class MongoStore(DocStore):
             return []
 
         # Use provided collection name or get from environment variable
-        collection_name = collection or os.getenv(
-            "MONGO_CONTENTS_COLLECTION", "web_contents"
-        )
+        collection_name = collection or os.getenv("MONGO_CONTENTS_COLLECTION", "web_contents")
 
         try:
             with self._get_collection(collection_name) as col:
@@ -299,9 +293,7 @@ class MongoStore(DocStore):
             return
 
         # Use provided collection name or get from environment variable
-        collection_name = collection or os.getenv(
-            "MONGO_CONTENTS_COLLECTION", "web_contents"
-        )
+        collection_name = collection or os.getenv("MONGO_CONTENTS_COLLECTION", "web_contents")
 
         try:
             with self._get_collection(collection_name) as col:
@@ -546,9 +538,9 @@ class MongoStore(DocStore):
 
     def close(self) -> None:
         """Close the MongoDB database connection.
-
+        
         Note: When using the connection manager, individual close calls do not
-        close the shared connection pool. Use MongoConnectionManager.close()
+        close the shared connection pool. Use MongoConnectionManager.close() 
         to close the global connection pool when shutting down the application.
 
         Raises:

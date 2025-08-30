@@ -405,8 +405,7 @@ function getNewsContent() {
 
     const requestData = {
         urls: AppState.getUrls(),
-        crawler_engine: $('#crawler_engine').val() || 'apify',
-        crawler_type: $('#crawler_type').val() || 'cheerio',
+        crawler_type: $('#crawler_type').val() || 'playwright:adaptive',
         company_name: $('#company_name').val().trim(),
         lang: $('#lang').val(),
         contents_save: $('#contents_save').prop('checked'),

@@ -52,7 +52,7 @@ class PostgreSQLConnectionManager:
                         "password": os.getenv("POSTGRES_PASSWORD"),
                         "schema": os.getenv("POSTGRES_SCHEMA", "namecheck"),
                     }
-
+                    
                     # Validate that password is provided
                     if not self._connection_params["password"]:
                         raise ValueError(
@@ -79,7 +79,7 @@ class PostgreSQLConnectionManager:
         try:
             params = self.get_connection_params()
             # Remove 'schema' from connection params as it's not a valid psycopg2 parameter
-            connection_params = {k: v for k, v in params.items() if k != "schema"}
+            connection_params = {k: v for k, v in params.items() if k != 'schema'}
             conn = psycopg2.connect(**connection_params)
             yield conn
         except psycopg2.Error as e:
@@ -119,9 +119,7 @@ class PostgreSQLTagStore:
         self.table_name = table_name or os.getenv("POSTGRES_TAGS_TABLE", "fc_tags")
         self.schema = schema or os.getenv("POSTGRES_SCHEMA", "public")
         self._ensure_schema_and_table_exist()
-        logger.info(
-            f"PostgreSQLTagStore initialized with schema.table: {self.schema}.{self.table_name}"
-        )
+        logger.info(f"PostgreSQLTagStore initialized with schema.table: {self.schema}.{self.table_name}")
 
     def _get_qualified_table_name(self):
         """Get the schema-qualified table name as SQL identifier."""
@@ -134,9 +132,9 @@ class PostgreSQLTagStore:
                 with conn.cursor() as cursor:
                     # Create schema if it doesn't exist (only if not 'public')
                     if self.schema != "public":
-                        create_schema_query = sql.SQL(
-                            "CREATE SCHEMA IF NOT EXISTS {}"
-                        ).format(sql.Identifier(self.schema))
+                        create_schema_query = sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
+                            sql.Identifier(self.schema)
+                        )
                         cursor.execute(create_schema_query)
                         logger.info(f"Schema '{self.schema}' created or already exists")
 
@@ -170,7 +168,7 @@ class PostgreSQLTagStore:
                     cursor.execute(create_table_query)
 
                     # Check if table exists now and add title column if missing
-                    if existing_columns and "title" not in existing_columns:
+                    if existing_columns and 'title' not in existing_columns:
                         logger.info("Adding title column to existing table")
                         add_title_column_query = sql.SQL("""
                             ALTER TABLE {} ADD COLUMN title TEXT
@@ -182,9 +180,7 @@ class PostgreSQLTagStore:
                         sql.SQL(
                             "CREATE INDEX IF NOT EXISTS {} ON {} (customer_id, company_name, lang)"
                         ).format(
-                            sql.Identifier(
-                                f"{self.schema}_{self.table_name}_customer_company_lang_idx"
-                            ),
+                            sql.Identifier(f"{self.schema}_{self.table_name}_customer_company_lang_idx"),
                             self._get_qualified_table_name(),
                         ),
                         sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} (url)").format(
@@ -194,17 +190,13 @@ class PostgreSQLTagStore:
                         sql.SQL(
                             "CREATE INDEX IF NOT EXISTS {} ON {} (method, llm_name)"
                         ).format(
-                            sql.Identifier(
-                                f"{self.schema}_{self.table_name}_method_llm_idx"
-                            ),
+                            sql.Identifier(f"{self.schema}_{self.table_name}_method_llm_idx"),
                             self._get_qualified_table_name(),
                         ),
                         sql.SQL(
                             "CREATE INDEX IF NOT EXISTS {} ON {} (modified_date)"
                         ).format(
-                            sql.Identifier(
-                                f"{self.schema}_{self.table_name}_modified_date_idx"
-                            ),
+                            sql.Identifier(f"{self.schema}_{self.table_name}_modified_date_idx"),
                             self._get_qualified_table_name(),
                         ),
                     ]
@@ -252,10 +244,8 @@ class PostgreSQLTagStore:
         # Use default customer_id if not provided for backward compatibility
         if customer_id is None:
             customer_id = "default"
-
-        logger.info(
-            f"PostgreSQL save_tags called with customer_id: '{customer_id}', tags count: {len(tags)}"
-        )
+            
+        logger.info(f"PostgreSQL save_tags called with customer_id: '{customer_id}', tags count: {len(tags)}")
 
         try:
             with _postgres_manager.get_connection() as conn:
@@ -289,14 +279,7 @@ class PostgreSQLTagStore:
 
                             cursor.execute(
                                 check_query,
-                                (
-                                    company_name,
-                                    lang,
-                                    item["url"],
-                                    method,
-                                    llm_name,
-                                    customer_id,
-                                ),
+                                (company_name, lang, item["url"], method, llm_name, customer_id),
                             )
                             existing_record = cursor.fetchone()
 
@@ -399,9 +382,9 @@ class PostgreSQLTagStore:
                     url_placeholders = ",".join(["%s"] * len(urls))
 
                     query_parts = [
-                        sql.SQL(
-                            "SELECT url, title, crime_type, probability FROM {}"
-                        ).format(self._get_qualified_table_name()),
+                        sql.SQL("SELECT url, title, crime_type, probability FROM {}").format(
+                            self._get_qualified_table_name()
+                        ),
                         sql.SQL("WHERE LOWER(company_name) = LOWER(%s)"),
                         sql.SQL("AND LOWER(lang) = LOWER(%s)"),
                         sql.SQL("AND method = %s"),
