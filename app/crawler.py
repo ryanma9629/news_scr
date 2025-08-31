@@ -7,12 +7,10 @@ functionality using various crawlers like Apify for document retrieval.
 
 import asyncio
 import logging
-import os
 import sys
 from abc import ABC, abstractmethod
 from typing import List, Optional, Literal
 
-import httpx
 from dotenv import load_dotenv
 from langchain_apify import ApifyWrapper
 from langchain_core.documents import Document
@@ -146,193 +144,6 @@ class ApifyCrawler(Crawler):
             raise
 
 
-class Crawl4AICrawler(Crawler):
-    """
-    Crawler implementation using Crawl4AI Docker deployment.
-
-    This class provides document retrieval functionality using Crawl4AI's
-    Docker-based crawling service with REST API interface.
-    """
-
-    def __init__(self, base_url: Optional[str] = None) -> None:
-        """Initialize the Crawl4AI crawler with base URL.
-
-        Args:
-            base_url: Base URL of Crawl4AI service (default: http://localhost:11235)
-        """
-        super().__init__()
-        self.base_url = base_url or os.getenv("CRAWL4AI_BASE_URL", "http://localhost:11235")
-        if not self.base_url.endswith("/"):
-            self.base_url += "/"
-
-    async def get(self, urls: List[str]) -> List[Document]:
-        """Retrieve documents from URLs using Crawl4AI service.
-
-        Args:
-            urls: List of URLs to crawl
-
-        Returns:
-            List of Document objects containing the crawled content
-
-        Raises:
-            ValueError: If URLs list is invalid
-            Exception: If the Crawl4AI API call fails
-        """
-        # Validate input parameters
-        if not urls:
-            logger.warning("Empty URLs list provided to Crawl4AI crawler")
-            return []
-        
-        if not isinstance(urls, list):
-            raise ValueError("urls must be a list")
-        
-        # Filter out invalid URLs and log warnings
-        valid_urls = self._filter_valid_urls(urls)
-        
-        if not valid_urls:
-            logger.warning("No valid URLs to crawl after filtering")
-            return []
-
-        logger.info(f"Starting Crawl4AI crawl of {len(valid_urls)} URLs")
-        
-        try:
-            # Create payload using same structure as test file
-            payload = self._create_crawl_payload(valid_urls)
-            
-            # Make API call using httpx (like test file)
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                response = await client.post(f"{self.base_url}crawl", json=payload)
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    documents = self._process_crawl_response(result, valid_urls)
-                    logger.info(f"Crawl4AI crawl completed. Retrieved {len(documents)} documents from {len(valid_urls)} URLs")
-                    return documents
-                else:
-                    self._handle_error_response(response)
-                    return []
-                    
-        except Exception as e:
-            logger.error(f"Crawl4AI crawler failed: {str(e)}")
-            raise
-            
-    def _filter_valid_urls(self, urls: List[str]) -> List[str]:
-        """Filter out invalid URLs and return list of valid ones."""
-        valid_urls = []
-        for url in urls:
-            if not url or not isinstance(url, str) or not url.strip():
-                logger.warning(f"Skipping invalid URL: {url}")
-                continue
-            url = url.strip()
-            if not (url.startswith('http://') or url.startswith('https://')):
-                logger.warning(f"Skipping URL without http/https scheme: {url}")
-                continue
-            valid_urls.append(url)
-        return valid_urls
-    
-    def _create_crawl_payload(self, urls: List[str]) -> dict:
-        """Create the payload for Crawl4AI API call, mimicking test file structure."""
-        return {
-            "urls": urls,
-            "crawler_config": {
-                "type": "CrawlerRunConfig",
-                "params": {
-                    "scraping_strategy": {
-                        "type": "LXMLWebScrapingStrategy",
-                        "params": {}
-                    },
-                    "table_extraction": {
-                        "type": "DefaultTableExtraction",
-                        "params": {}
-                    },
-                    "exclude_social_media_domains": [
-                        "facebook.com",
-                        "twitter.com",
-                        "x.com",
-                        "linkedin.com",
-                        "instagram.com",
-                        "pinterest.com",
-                        "tiktok.com",
-                        "snapchat.com",
-                        "reddit.com"
-                    ],
-                    "stream": True,
-                }
-            }
-        }
-    
-    def _process_crawl_response(self, result: dict, valid_urls: List[str]) -> List[Document]:
-        """Process the response from Crawl4AI and extract documents."""
-        documents = []
-        
-        if not isinstance(result, dict) or not result.get("success", False):
-            logger.warning("Crawl4AI returned unsuccessful response")
-            return documents
-            
-        results_list = result.get("results", [])
-        if not isinstance(results_list, list):
-            logger.warning(f"Expected results to be a list, got {type(results_list)}")
-            return documents
-            
-        # Process each result
-        for item in results_list:
-            if item.get("success", False):
-                doc = self._create_document_from_result(item)
-                if doc:
-                    documents.append(doc)
-            else:
-                self._log_failed_result(item)
-                
-        return documents
-    
-    def _create_document_from_result(self, item: dict) -> Optional[Document]:
-        """Create a Document from a single crawl result."""
-        # Extract content with priority order
-        content = (item.get("markdown") or 
-                  item.get("cleaned_html") or
-                  item.get("extracted_content") or 
-                  item.get("content") or 
-                  item.get("text") or "")
-        
-        # Ensure content is a string
-        if content and not isinstance(content, str):
-            content = str(content)
-        
-        if not content or len(content.strip()) <= 10:
-            logger.warning(f"No meaningful content extracted from {item.get('url', 'unknown')}")
-            return None
-            
-        # Extract metadata
-        url = item.get("url", "")
-        title = (item.get("metadata", {}).get("title") or
-                item.get("title") or 
-                item.get("page_title") or 
-                item.get("name") or "")
-        
-        return Document(
-            page_content=content.strip(),
-            metadata={
-                "source": url,
-                "title": title,
-                "crawler": "crawl4ai"
-            }
-        )
-    
-    def _log_failed_result(self, item: dict) -> None:
-        """Log information about failed crawl results."""
-        error_msg = item.get("error_message", item.get("error", "Unknown error"))
-        url = item.get("url", "unknown")
-        logger.warning(f"Crawl4AI returned unsuccessful response for {url}: {error_msg}")
-    
-    def _handle_error_response(self, response: httpx.Response) -> None:
-        """Handle and log error responses from the API."""
-        try:
-            error_response = response.json()
-            logger.error(f"Crawl4AI API returned status {response.status_code}: {error_response}")
-        except Exception:
-            error_text = response.text[:200]
-            logger.error(f"Crawl4AI API returned status {response.status_code}: {error_text}")
-
 
 if __name__ == "__main__":
     if sys.platform == "win32":
@@ -342,32 +153,24 @@ if __name__ == "__main__":
         """Main function to demonstrate the crawler functionality."""
         # Test with different crawler types
         test_urls = [
-            # "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp",
+            "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp",
             "https://www.ebsco.com/research-starters/technology/theranos",
+            # "https://www.bloomberg.com/news/articles/2025-08-28/dell-raises-annual-forecasts-on-strong-demand-for-ai-servers"
         ]
         
         # Test Apify crawler
-        # print("Testing Apify crawler...")
-        # apify_crawler = ApifyCrawler()
-        # try:
-        #     docs_apify = await apify_crawler.get(test_urls, crawler_type="cheerio")
-        #     print(f"Apify crawler retrieved {len(docs_apify)} documents")
-        # except Exception as e:
-        #     print(f"Apify crawler failed: {e}")
-        
-        # Test Crawl4AI crawler
-        print("Testing Crawl4AI crawler...")
-        crawl4ai_crawler = Crawl4AICrawler()
+        print("Testing Apify crawler...")
+        apify_crawler = ApifyCrawler()
         try:
-            docs_crawl4ai = await crawl4ai_crawler.get(test_urls)
-            print(f"Crawl4AI crawler retrieved {len(docs_crawl4ai)} documents")
+            docs_apify = await apify_crawler.get(test_urls, crawler_type="cheerio")
+            print(f"Apify crawler retrieved {len(docs_apify)} documents")
+            
+            # Debug output - uncomment for testing
+            for doc in docs_apify:
+                print(f"Source: {doc.metadata.get('source', '')}")
+                print(f"Content preview: {doc.page_content[:1000]}...")
+                print("---")
         except Exception as e:
-            print(f"Crawl4AI crawler failed: {e}")
-        
-        # Debug output - uncomment for testing
-        for doc in docs_crawl4ai:
-            print(f"Source: {doc.metadata.get('source', '')}")
-            print(f"Content preview: {doc.page_content[:1000]}...")
-            print("---")
+            print(f"Apify crawler failed: {e}")
 
     asyncio.run(main())

@@ -28,7 +28,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field, SecretStr
 from starlette.middleware.sessions import SessionMiddleware
 
-from .crawler import ApifyCrawler, Crawl4AICrawler, CrawlerType
+from .crawler import ApifyCrawler, CrawlerType
 from .doc_store import MongoStore, _mongo_manager
 from .postgres_store import PostgreSQLTagStore
 from .query import QAWithContext
@@ -215,11 +215,8 @@ class SearchRequest(BaseModel):
 
 class CrawlerRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to crawl")
-    crawler_service: str = Field(
-        default="apify", description="Crawler service ('apify' or 'crawl4ai')"
-    )
     crawler_type: CrawlerType = Field(
-        default="playwright:adaptive", description="Crawler type (only for Apify)"
+        default="playwright:adaptive", description="Crawler type"
     )
     company_name: str = Field(..., description="Company name for storage")
     customer_id: Optional[str] = Field(
@@ -1029,15 +1026,11 @@ async def crawl_news_content(request: CrawlerRequest):
         crawled_contents = []
         if urls_to_crawl:
             try:
-                # Select crawler based on service
-                if request.crawler_service.lower() == "crawl4ai":
-                    crawler = Crawl4AICrawler()
-                    documents = await crawler.get(urls_to_crawl)
-                else:  # Default to Apify
-                    crawler = ApifyCrawler()
-                    documents = await crawler.get(
-                        urls_to_crawl, crawler_type=request.crawler_type
-                    )
+                # Use Apify crawler only
+                crawler = ApifyCrawler()
+                documents = await crawler.get(
+                    urls_to_crawl, crawler_type=request.crawler_type
+                )
 
                 url_to_doc = {
                     doc.metadata.get("source", ""): doc
