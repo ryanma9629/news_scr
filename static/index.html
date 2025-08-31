@@ -192,7 +192,7 @@
                             </div>
                             <div class="modal-body">
                                 <form id="frm_crawler">
-                                    <!-- Crawler Type Selection -->
+                                    <!-- Crawler Service and Type Selection -->
                                     <div class="row mb-3">
                                         <div class="col-12">
                                             <div class="card">
@@ -200,9 +200,18 @@
                                                     <h6 class="mb-0">Crawler Settings</h6>
                                                 </div>
                                                 <div class="card-body">
-                                                    <div class="mb-2">
+                                                    <div class="mb-3">
+                                                        <label for="crawler_service" class="form-label">
+                                                            Crawler Service:
+                                                        </label>
+                                                        <select id="crawler_service" class="form-select">
+                                                            <option value="apify" selected>Apify (Cloud)</option>
+                                                            <option value="crawl4ai">Crawl4AI (Local)</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="mb-2" id="apify_crawler_options">
                                                         <label for="crawler_type" class="form-label">
-                                                            Crawler Type:
+                                                            Crawler Type (Apify):
                                                         </label>
                                                         <select id="crawler_type" class="form-select">
                                                             <option value="cheerio" selected>Raw HTTP client (fast)</option>

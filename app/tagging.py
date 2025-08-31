@@ -1,3 +1,10 @@
+"""
+Financial crime tagging implementations using LLMs.
+
+This module provides functionality to analyze documents and identify potential
+financial crimes using language models and vector search capabilities.
+"""
+
 import asyncio
 import logging
 import sys
@@ -15,12 +22,17 @@ from pydantic import BaseModel, Field
 
 from .crawler import ApifyCrawler
 
+# Load environment variables
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+# Initialize logger
 logger = logging.getLogger(__name__)
 
 # Configuration constants

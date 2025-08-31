@@ -1,3 +1,10 @@
+"""
+Question-answering implementations using RAG (Retrieval-Augmented Generation).
+
+This module provides abstract and concrete implementations for question-answering
+functionality using language models with document retrieval capabilities.
+"""
+
 import asyncio
 import logging
 import sys
@@ -16,12 +23,17 @@ from langgraph.graph import START, StateGraph
 
 from .crawler import ApifyCrawler
 
+# Load environment variables
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+# Initialize logger
 logger = logging.getLogger(__name__)
 
 # Configuration constants

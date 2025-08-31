@@ -1,3 +1,10 @@
+"""
+Document summarization implementations using LLMs.
+
+This module provides abstract and concrete implementations for document
+summarization functionality using Map-Reduce and refinement approaches.
+"""
+
 import asyncio
 import logging
 import operator
@@ -21,12 +28,17 @@ from langgraph.types import Send
 
 from .crawler import ApifyCrawler
 
+# Load environment variables
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+# Initialize logger
 logger = logging.getLogger(__name__)
 
 
@@ -729,6 +741,7 @@ if __name__ == "__main__":
 
     def main():
         """Main function to demonstrate the summarization functionality."""
+        import logging
         logger.setLevel(logging.DEBUG)
 
         llm = AzureChatOpenAI(

@@ -339,7 +339,7 @@ docker-compose -f docker/docker-compose.yml exec adverse-news-screening bash
 docker-compose -f docker/docker-compose.yml exec adverse-news-screening python -c "import sys; print(sys.path)"
 
 # Test database connection
-docker-compose -f docker/docker-compose.yml exec adverse-news-screening python -c "from app.docstore import MongoStore; store = MongoStore('test', 'en'); print('Connection OK')"
+docker-compose -f docker/docker-compose.yml exec adverse-news-screening python -c "from app.doc_store import MongoStore; store = MongoStore('test', 'en'); print('Connection OK')"
 ```
 
 ## 📊 Monitoring

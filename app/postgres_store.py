@@ -1,3 +1,10 @@
+"""
+PostgreSQL storage implementations for tag management.
+
+This module provides PostgreSQL-based storage functionality for managing
+document tags with connection pooling and thread safety.
+"""
+
 import logging
 import os
 import threading
@@ -11,8 +18,12 @@ from psycopg2 import sql
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+# Initialize logger
 logger = logging.getLogger(__name__)
 
 

@@ -1,3 +1,10 @@
+"""
+Web search implementations for news article discovery.
+
+This module provides abstract and concrete implementations for web search
+functionality using various search providers like Google Serper and Bing.
+"""
+
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -7,13 +14,18 @@ from dotenv import load_dotenv
 from langchain_community.utilities import BingSearchAPIWrapper
 from langchain_community.utilities.google_serper import GoogleSerperAPIWrapper
 
-load_dotenv()
-
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+# Initialize logger
 logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
 
 
 class SearchResult(TypedDict):

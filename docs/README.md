@@ -16,7 +16,7 @@ news_scr/
 │   ├── __init__.py
 │   ├── main.py                  # FastAPI server (main entry point)
 │   ├── crawler.py               # Web crawling functionality
-│   ├── docstore.py              # MongoDB document storage
+│   ├── doc_store.py             # MongoDB document storage
 │   ├── postgres_store.py        # PostgreSQL tagging storage
 │   ├── query.py                 # Q&A with context
 │   ├── summarization.py         # Document summarization

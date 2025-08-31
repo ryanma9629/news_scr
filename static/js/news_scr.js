@@ -262,7 +262,8 @@ function initializeApp() {
         ['#btn_summary_submit', 'click', performSummary],
         ['#btn_qa_submit', 'click', performQA],
         ['#btn_qa', 'click', setDefaultQAQuery],
-        ['#llm_model', 'change', handleLLMModelChange]
+        ['#llm_model', 'change', handleLLMModelChange],
+        ['#crawler_service', 'change', toggleCrawlerOptions]
     ];
 
     eventBindings.forEach(([selector, event, handler]) => {
@@ -405,6 +406,7 @@ function getNewsContent() {
 
     const requestData = {
         urls: AppState.getUrls(),
+        crawler_service: $('#crawler_service').val() || 'apify',
         crawler_type: $('#crawler_type').val() || 'playwright:adaptive',
         company_name: $('#company_name').val().trim(),
         lang: $('#lang').val(),
@@ -820,6 +822,18 @@ function setDefaultQAQuery() {
     $('#ta_qa_query').val(defaultQuery);
 }
 
+// Toggle crawler options based on selected service
+function toggleCrawlerOptions() {
+    const selectedService = $('#crawler_service').val();
+    const apifyOptions = $('#apify_crawler_options');
+    
+    if (selectedService === 'crawl4ai') {
+        apifyOptions.hide();
+    } else {
+        apifyOptions.show();
+    }
+}
+
 // Export functions for global access (maintaining backward compatibility)
 Object.assign(window, {
     performSearch,
@@ -828,6 +842,7 @@ Object.assign(window, {
     performSummary,
     performQA,
     setDefaultQAQuery,
+    toggleCrawlerOptions,
     // Legacy support
     showAlert: AlertManager.show,
     hideAlert: AlertManager.hide

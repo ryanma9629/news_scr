@@ -1,3 +1,10 @@
+"""
+Document storage implementations using MongoDB.
+
+This module (doc_store.py) provides abstract and concrete implementations for 
+document storage functionality, including content and tag management with MongoDB backend.
+"""
+
 import logging
 import os
 import re
@@ -12,8 +19,12 @@ from pymongo.errors import PyMongoError
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+# Initialize logger
 logger = logging.getLogger(__name__)
 
 
@@ -562,4 +573,6 @@ class MongoStore(DocStore):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit point."""
+        # Parameters are required by context manager protocol
+        _ = exc_type, exc_val, exc_tb  # Suppress unused variable warnings
         self.close()
