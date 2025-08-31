@@ -28,7 +28,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field, SecretStr
 from starlette.middleware.sessions import SessionMiddleware
 
-from .crawler import ApifyCrawler, Crawl4aiCrawler, CrawlerType
+from .crawler import ApifyCrawler, Crawl4AICrawler, CrawlerType
 from .doc_store import MongoStore, _mongo_manager
 from .postgres_store import PostgreSQLTagStore
 from .query import QAWithContext
@@ -1031,7 +1031,7 @@ async def crawl_news_content(request: CrawlerRequest):
             try:
                 # Select crawler based on service
                 if request.crawler_service.lower() == "crawl4ai":
-                    crawler = Crawl4aiCrawler()
+                    crawler = Crawl4AICrawler()
                     documents = await crawler.get(urls_to_crawl)
                 else:  # Default to Apify
                     crawler = ApifyCrawler()
