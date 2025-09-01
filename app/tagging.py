@@ -20,7 +20,17 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
-from .crawler import ApifyCrawler
+# Handle both relative and absolute imports
+try:
+    # Try relative import first (when used as a module)
+    from .crawler import ApifyCrawler
+except ImportError:
+    # Fall back to absolute import (when used as a standalone script)
+    try:
+        from crawler import ApifyCrawler
+    except ImportError:
+        # If neither works, try importing from the app package
+        from app.crawler import ApifyCrawler
 
 # Load environment variables
 load_dotenv()
@@ -385,23 +395,21 @@ if __name__ == "__main__":
         fctagging = FCTagging(llm, emb)
 
         # Debug output - uncomment for testing
-        # print("tagging a single chunk...")
+        print("tagging a single chunk...")
         tag = asyncio.run(fctagging._tag_single(all_chunks[0]))
-        # print(tag)
+        print(tag)
 
-        # print("\ntagging all chunks...")
+        print("\ntagging all chunks...")
         tags = asyncio.run(fctagging._tag_batch(all_chunks))
-        # print(tags)
+        print(tags)
 
-        # print("\ntagging all chunks and combine the result...")
+        print("\ntagging all chunks and combine the result...")
         tags = asyncio.run(fctagging.tagging_combine(all_chunks))
-        # print(tags)
+        print(tags)
 
-        # print("\ntagging with RAG...")
+        print("\ntagging with RAG...")
         tags = asyncio.run(fctagging.tagging_rag(all_chunks))
-        # print(tags)
+        print(tags)
 
-        # Results available for testing
-        _ = tag, tags
 
     main()

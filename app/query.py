@@ -21,7 +21,17 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import START, StateGraph
 
-from .crawler import ApifyCrawler
+# Handle both relative and absolute imports
+try:
+    # Try relative import first (when used as a module)
+    from .crawler import ApifyCrawler
+except ImportError:
+    # Fall back to absolute import (when used as a standalone script)
+    try:
+        from crawler import ApifyCrawler
+    except ImportError:
+        # If neither works, try importing from the app package
+        from app.crawler import ApifyCrawler
 
 # Load environment variables
 load_dotenv()
