@@ -204,8 +204,8 @@ const Utils = {
             llm_model: $('#llm_model').val()
         };
 
-        // Always add customer_id - from URL in VI_DEPLOY mode, or default value
-        formData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
+        // Add customer_id and validate LLM model
+        Utils.addCustomerId(formData);
 
         // Validate LLM model
         if (!SUPPORTED_LLM_MODELS.includes(formData.llm_model)) {
@@ -238,22 +238,12 @@ const Utils = {
             urlToIndex.set(result.url, index);
         });
         return urlToIndex;
-    }
-};
-
-// Add DOM cache for frequently used elements
-const DOMCache = {
-    elements: new Map(),
-    
-    get(selector) {
-        if (!this.elements.has(selector)) {
-            this.elements.set(selector, $(selector));
-        }
-        return this.elements.get(selector);
     },
-    
-    clear() {
-        this.elements.clear();
+
+    addCustomerId(requestData) {
+        // Always add customer_id - from URL in VI_DEPLOY mode, or default value
+        requestData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
+        return requestData;
     }
 };
 
@@ -262,8 +252,10 @@ $(document).ready(() => initializeApp());
 function initializeApp() {
     // Handle VI_DEPLOY configuration
     if (window.VI_DEPLOY) {
-        // Hide company name input section
-        $('#company_name_section').hide();
+        // Company name input section will remain visible in VI_DEPLOY mode
+        
+        // Ensure the section is visible (defensive programming)
+        $('#company_name_section').show();
 
         // Set company name from URL parameter if provided
         if (window.URL_COMPANY_NAME && window.URL_CUSTOMER_ID) {
@@ -290,9 +282,6 @@ function initializeApp() {
             `;
             $('#div_ajax_info').html(errorNotification).show();
         }
-
-        // Remove the required attribute since the field is hidden
-        $('#company_name').removeAttr('required');
     }
 
     // Event bindings
@@ -480,8 +469,7 @@ function getNewsContent() {
         session_id: AppState.sessionId
     };
 
-    // Always add customer_id - from URL in VI_DEPLOY mode, or default value
-    requestData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
+    Utils.addCustomerId(requestData);
 
     AjaxHelper.makeRequest({
         url: '/api/crawler',
@@ -579,16 +567,13 @@ function performTagging() {
         session_id: AppState.sessionId
     };
 
-    // Always add customer_id - from URL in VI_DEPLOY mode, or default value
-    requestData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
+    Utils.addCustomerId(requestData);
 
     AjaxHelper.makeRequest({
         url: '/api/tagging',
         data: requestData,
         timeout: 180000,
         beforeSend: () => {
-            // Debug logging for tagging
-            console.log(`Tagging request - VI_DEPLOY: ${window.VI_DEPLOY}, URL_CUSTOMER_ID: '${window.URL_CUSTOMER_ID}', sending customer_id: '${requestData.customer_id}'`);
             UIState.toggleSubmitButton('#btn_tagging_submit', true);
             AlertManager.showLoading('Processing FC tagging, please wait...');
         }
@@ -698,8 +683,7 @@ function performSummary() {
         session_id: AppState.sessionId
     };
 
-    // Always add customer_id - from URL in VI_DEPLOY mode, or default value
-    requestData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
+    Utils.addCustomerId(requestData);
 
     AjaxHelper.makeRequest({
         url: '/api/summary',
@@ -775,8 +759,7 @@ function performQA() {
         session_id: AppState.sessionId
     };
 
-    // Always add customer_id - from URL in VI_DEPLOY mode, or default value
-    requestData.customer_id = (window.VI_DEPLOY && window.URL_CUSTOMER_ID) ? window.URL_CUSTOMER_ID : "default";
+    Utils.addCustomerId(requestData);
 
     AjaxHelper.makeRequest({
         url: '/api/qa',

@@ -15,7 +15,7 @@
         .vi-deploy-hide-navbar {
             display: none !important;
         }
-        
+
         /* Adjust container padding when navbar is hidden */
         .vi-deploy-no-navbar {
             padding-top: 1rem !important;
@@ -73,9 +73,9 @@
                             <div class="mb-3">
                                 <label for="search_suffix" class="form-label">Search Topic:</label>
                                 <select id="search_suffix" name="search_suffix" class="form-select">
+                                    <option value="everything">(Everything)</option>
                                     <option value="negative">Negative News</option>
                                     <option value="crime">Criminal Suspect</option>
-                                    <option value="everything">(Everything)</option>
                                 </select>
                             </div>
 
@@ -147,28 +147,32 @@
                         <div class="card-body">
                             <div class="row g-2">
                                 <div class="col-6 col-lg-3">
-                                    <button type="button" id="btn_crawler" class="btn btn-outline-primary w-100 disabled transition-all"
+                                    <button type="button" id="btn_crawler"
+                                        class="btn btn-outline-primary w-100 disabled transition-all"
                                         data-bs-toggle="modal" data-bs-target="#crawler_modal">
                                         <i class="bi bi-download d-block mb-1"></i>
                                         <small>Fetch Full-text</small>
                                     </button>
                                 </div>
                                 <div class="col-6 col-lg-3">
-                                    <button type="button" id="btn_tagging" class="btn btn-outline-primary w-100 disabled transition-all"
+                                    <button type="button" id="btn_tagging"
+                                        class="btn btn-outline-primary w-100 disabled transition-all"
                                         data-bs-toggle="modal" data-bs-target="#tagging_modal">
                                         <i class="bi bi-tags d-block mb-1"></i>
                                         <small>Financial Crime Tagging</small>
                                     </button>
                                 </div>
                                 <div class="col-6 col-lg-3">
-                                    <button type="button" id="btn_summary" class="btn btn-outline-primary w-100 disabled transition-all"
+                                    <button type="button" id="btn_summary"
+                                        class="btn btn-outline-primary w-100 disabled transition-all"
                                         data-bs-toggle="modal" data-bs-target="#summary_modal">
                                         <i class="bi bi-file-text d-block mb-1"></i>
                                         <small>Summary</small>
                                     </button>
                                 </div>
                                 <div class="col-6 col-lg-3">
-                                    <button type="button" id="btn_qa" class="btn btn-outline-primary w-100 disabled transition-all"
+                                    <button type="button" id="btn_qa"
+                                        class="btn btn-outline-primary w-100 disabled transition-all"
                                         data-bs-toggle="modal" data-bs-target="#qa_modal">
                                         <i class="bi bi-question-circle d-block mb-1"></i>
                                         <small>Q&A</small>
@@ -205,7 +209,8 @@
                                                             Crawler Type:
                                                         </label>
                                                         <select id="crawler_type" class="form-select">
-                                                            <option value="cheerio" selected>Raw HTTP client (fast)</option>
+                                                            <option value="cheerio" selected>Raw HTTP client (fast)
+                                                            </option>
                                                             <option value="playwright:adaptive">Adaptive
                                                                 switching</option>
                                                             <option value="playwright:firefox">Web browser (firefox)
@@ -297,7 +302,8 @@
                                     data-bs-dismiss="modal">
                                     <i class="bi bi-play-fill me-2"></i>Start
                                 </button>
-                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-outline-secondary"
+                                    data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -387,7 +393,8 @@
                                     data-bs-dismiss="modal">
                                     <i class="bi bi-play-fill me-2"></i>Start
                                 </button>
-                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-outline-secondary"
+                                    data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -451,7 +458,8 @@
                                     data-bs-dismiss="modal">
                                     <i class="bi bi-play-fill me-2"></i>Generate
                                 </button>
-                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-outline-secondary"
+                                    data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -488,7 +496,8 @@
                                     data-bs-dismiss="modal">
                                     <i class="bi bi-play-fill me-2"></i>Ask Question
                                 </button>
-                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-outline-secondary"
+                                    data-bs-dismiss="modal">Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -522,14 +531,14 @@
 
     <!-- Load JavaScript at the end for better performance -->
     <script src="/static/js/news_scr.js"></script>
-    
+
     <script>
         // Hide navbar and adjust layout when VI_DEPLOY is enabled
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             if (window.VI_DEPLOY === true) {
                 const navbar = document.getElementById('main-navbar');
                 const container = document.getElementById('main-container');
-                
+
                 if (navbar) {
                     navbar.classList.add('vi-deploy-hide-navbar');
                 }
