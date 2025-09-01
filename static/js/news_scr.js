@@ -598,21 +598,17 @@ function removeTaggingColumns() {
     // Remove Probability column header if exists
     tableHeader.find('th:contains("Probability")').remove();
 
-    // Remove Description column header if exists
-    tableHeader.find('th:contains("Description")').remove();
-
     // Remove corresponding data cells from all rows
     $('#news-results-table tbody tr').each(function () {
         const $row = $(this);
         const cellCount = $row.find('td').length;
 
-        // Remove last three cells if they are tagging-related (crime-type, probability, and description)
+        // Remove last two cells if they are tagging-related (crime-type, probability)
         if (cellCount > 4) { // Original 4 columns: No., Title, Source, Content
-            $row.find('td.crime-type, td.probability, td.description').remove();
+            $row.find('td.crime-type, td.probability').remove();
 
-            // If no specific classes, remove the last three cells
+            // If no specific classes, remove the last two cells
             if ($row.find('td').length > 4) {
-                $row.find('td:last').remove(); // Remove description
                 $row.find('td:last').remove(); // Remove probability
                 $row.find('td:last').remove(); // Remove crime-type
             }
@@ -630,9 +626,8 @@ function handleTaggingSuccess(response) {
         // Add table columns if they don't exist
         const tableHeader = $('#news-results-table thead tr');
         if (!tableHeader.find('th:contains("Crime Type")').length) {
-            tableHeader.append('<th scope="col" style="width: 25%">Crime Type</th>');
-            tableHeader.append('<th scope="col" style="width: 10%">Probability</th>');
-            tableHeader.append('<th scope="col" style="width: 25%">Description</th>');
+            tableHeader.append('<th scope="col" style="width: 30%">Crime Type</th>');
+            tableHeader.append('<th scope="col" style="width: 15%">Probability</th>');
         }
 
         // Create URL to index mapping for efficiency
@@ -644,38 +639,48 @@ function handleTaggingSuccess(response) {
 
             if (row.length > 0) {
                 // Add new columns to row if they don't exist
-                if (row.find('td').length < 7) {
+                if (row.find('td').length < 6) {
                     row.append('<td class="crime-type"></td>');
                     row.append('<td class="probability"></td>');
-                    row.append('<td class="description"></td>');
                 }
 
                 if (result.success && result.crime_type && result.probability) {
-                    row.find('.crime-type').text(result.crime_type);
-                    row.find('.probability').text(result.probability);
+                    const $crimeTypeCell = row.find('.crime-type');
+                    const $probabilityCell = row.find('.probability');
                     
-                    // Handle description field
-                    const description = result.description || '-';
-                    const $descCell = row.find('.description');
-                    $descCell.text(description);
+                    $crimeTypeCell.text(result.crime_type);
+                    $probabilityCell.text(result.probability);
                     
-                    // Add tooltip for longer descriptions
-                    if (description && description !== '-' && description.length > 50) {
-                        $descCell.attr('title', description);
-                        $descCell.addClass('description-truncated');
+                    // Add description as tooltip to both crime type and probability cells
+                    const description = result.description;
+                    if (description && description !== '-' && description.trim() !== '') {
+                        $crimeTypeCell.attr('title', description);
+                        $probabilityCell.attr('title', description);
+                        
+                        // Add Bootstrap tooltip styling
+                        $crimeTypeCell.attr('data-bs-toggle', 'tooltip');
+                        $crimeTypeCell.attr('data-bs-placement', 'top');
+                        $probabilityCell.attr('data-bs-toggle', 'tooltip');
+                        $probabilityCell.attr('data-bs-placement', 'top');
+                        
+                        // Add visual indicator that tooltip is available
+                        $crimeTypeCell.addClass('has-tooltip');
+                        $probabilityCell.addClass('has-tooltip');
                     }
                     
                     successCount++;
                 } else {
                     row.find('.crime-type').text('-');
                     row.find('.probability').text('-');
-                    row.find('.description').text('-');
                     failCount++;
                 }
             } else {
                 failCount++;
             }
         });
+
+        // Initialize Bootstrap tooltips for the newly added elements
+        $('[data-bs-toggle="tooltip"]').tooltip();
 
         AlertManager.show(`FC tagging completed: ${successCount} successful, ${failCount} failed`, 'success', false);
     } else {

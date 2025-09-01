@@ -155,7 +155,6 @@ class PostgreSQLTagStore:
                         WHERE table_schema = %s AND table_name = %s
                     """)
                     cursor.execute(check_table_query, (self.schema, self.table_name))
-                    existing_columns = {row[0] for row in cursor.fetchall()}
 
                     # Create table if it doesn't exist
                     create_table_query = sql.SQL("""
@@ -178,21 +177,6 @@ class PostgreSQLTagStore:
                     """).format(self._get_qualified_table_name())
 
                     cursor.execute(create_table_query)
-
-                    # Check if table exists now and add missing columns
-                    if existing_columns and 'title' not in existing_columns:
-                        logger.info("Adding title column to existing table")
-                        add_title_column_query = sql.SQL("""
-                            ALTER TABLE {} ADD COLUMN title TEXT
-                        """).format(self._get_qualified_table_name())
-                        cursor.execute(add_title_column_query)
-
-                    if existing_columns and 'description' not in existing_columns:
-                        logger.info("Adding description column to existing table")
-                        add_description_column_query = sql.SQL("""
-                            ALTER TABLE {} ADD COLUMN description TEXT
-                        """).format(self._get_qualified_table_name())
-                        cursor.execute(add_description_column_query)
 
                     # Create indexes for better performance
                     index_queries = [
