@@ -51,6 +51,7 @@ DEFAULT_K = 3
 MIN_CONTENT_LENGTH = 10
 DEFAULT_CRIME_TYPE = "Not suspected"
 DEFAULT_PROBABILITY = "low"
+DEFAULT_DESCRIPTION = None
 DEFAULT_CHUNK_SIZE = 2000
 DEFAULT_CHUNK_OVERLAP = 100
 
@@ -88,6 +89,15 @@ This refers specifically to financial crimes and not to other types of crime.
 """,
     )
 
+    description: Optional[str] = Field(
+        None,
+        description="""
+A very short description (1-2 sentences) explaining why this document is 
+classified as suspected of financial crime. Only provide this when probability 
+is 'medium' or 'high'. Leave as None for 'low' probability or 'Not suspected'.
+""",
+    )
+
 
 class FCTagging:
     """
@@ -103,6 +113,7 @@ You are an expert financial crime analyst. Analyze the following passage and det
 1. Whether the company is suspected of financial crimes
 2. The specific type of financial crime (if any)
 3. The probability level of the suspicion
+4. If probability is 'medium' or 'high', provide a very short description (1-2 sentences) explaining why
 
 Consider the following financial crime types:
 - Money Laundering
@@ -115,6 +126,12 @@ Consider the following financial crime types:
 
 Only extract the properties mentioned in the 'FinancialCrime' function.
 Provide your analysis based on concrete evidence from the text.
+
+For the description field:
+- Only provide a description when probability is 'medium' or 'high'
+- Keep it very brief (1-2 sentences maximum)
+- Focus on the specific evidence or indicators that led to the classification
+- Leave as None/null for 'low' probability or 'Not suspected' cases
 
 Passage:
 ------------
@@ -175,7 +192,7 @@ Passage:
             doc: Document to analyze
 
         Returns:
-            Dictionary containing crime_type and probability
+            Dictionary containing crime_type, probability, and description (if applicable)
         """
         # Input validation
         if not doc or not doc.page_content or not doc.page_content.strip():
@@ -183,6 +200,7 @@ Passage:
             return {
                 "crime_type": DEFAULT_CRIME_TYPE,
                 "probability": DEFAULT_PROBABILITY,
+                "description": DEFAULT_DESCRIPTION,
             }
 
         if len(doc.page_content.strip()) < MIN_CONTENT_LENGTH:
@@ -190,6 +208,7 @@ Passage:
             return {
                 "crime_type": DEFAULT_CRIME_TYPE,
                 "probability": DEFAULT_PROBABILITY,
+                "description": DEFAULT_DESCRIPTION,
             }
 
         try:
@@ -199,6 +218,7 @@ Passage:
             return {
                 "crime_type": DEFAULT_CRIME_TYPE,
                 "probability": DEFAULT_PROBABILITY,
+                "description": DEFAULT_DESCRIPTION,
             }
 
         if not isinstance(tag, FinancialCrime):
@@ -206,6 +226,7 @@ Passage:
             return {
                 "crime_type": DEFAULT_CRIME_TYPE,
                 "probability": DEFAULT_PROBABILITY,
+                "description": DEFAULT_DESCRIPTION,
             }
 
         return tag.model_dump(mode="json")
@@ -221,7 +242,7 @@ Passage:
             max_concurrency: Maximum number of concurrent requests
 
         Returns:
-            List of dictionaries containing crime_type and probability for each document
+            List of dictionaries containing crime_type, probability, and description for each document
         """
         if not docs:
             logger.warning("Empty document list provided")
@@ -238,7 +259,7 @@ Passage:
         except Exception as e:
             logger.error(f"Error tagging batch documents: {e}")
             return [
-                {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
+                {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY, "description": DEFAULT_DESCRIPTION}
                 for _ in docs
             ]
 
@@ -247,7 +268,7 @@ Passage:
         except ValueError as e:
             logger.error(f"Tag validation failed: {e}")
             return [
-                {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY}
+                {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY, "description": DEFAULT_DESCRIPTION}
                 for _ in docs
             ]
 
@@ -264,7 +285,7 @@ Passage:
             docs: List of documents to analyze
 
         Returns:
-            Dictionary containing combined crime_type and probability assessment
+            Dictionary containing combined crime_type, probability, and description assessment
 
         Raises:
             ValueError: If document list is empty
@@ -274,10 +295,13 @@ Passage:
             return {
                 "crime_type": DEFAULT_CRIME_TYPE,
                 "probability": DEFAULT_PROBABILITY,
+                "description": DEFAULT_DESCRIPTION,
             }
 
         medium_proba_types = set()
         high_proba_types = set()
+        medium_descriptions = []
+        high_descriptions = []
 
         tags = await self._tag_batch(docs)
         for tag in tags:
@@ -286,25 +310,42 @@ Passage:
                 continue
 
             probability = tag.get("probability")
+            description = tag.get("description")
+            
             if probability == "medium":
                 medium_proba_types.add(crime_type)
+                if description:
+                    medium_descriptions.append(description)
             elif probability == "high":
                 high_proba_types.add(crime_type)
+                if description:
+                    high_descriptions.append(description)
 
         if high_proba_types:
+            # Generate final description using LLM for high probability cases
+            combined_description = await self._generate_final_description(
+                high_descriptions, high_proba_types, "high"
+            ) if high_descriptions else None
             return {
                 "crime_type": ", ".join(sorted(high_proba_types)),
                 "probability": "high",
+                "description": combined_description,
             }
         elif medium_proba_types:
+            # Generate final description using LLM for medium probability cases
+            combined_description = await self._generate_final_description(
+                medium_descriptions, medium_proba_types, "medium"
+            ) if medium_descriptions else None
             return {
                 "crime_type": ", ".join(sorted(medium_proba_types)),
                 "probability": "medium",
+                "description": combined_description,
             }
         else:
             return {
                 "crime_type": DEFAULT_CRIME_TYPE,
                 "probability": DEFAULT_PROBABILITY,
+                "description": DEFAULT_DESCRIPTION,
             }
 
     async def tagging_rag(
@@ -327,7 +368,7 @@ Passage:
             k: Number of documents to retrieve (defaults to DEFAULT_K)
 
         Returns:
-            Dictionary containing crime_type and probability assessment
+            Dictionary containing crime_type, probability, and description assessment
 
         Raises:
             ValueError: If neither docs nor vectordb are provided
@@ -363,6 +404,59 @@ manipulation of securities markets?
             if not docs:
                 raise ValueError("docs cannot be None when fallback is needed")
             return await self.tagging_combine(docs)
+
+    async def _generate_final_description(self, descriptions: List[str], crime_types: set, probability: str) -> Optional[str]:
+        """
+        Generate a final consolidated description using LLM based on individual descriptions.
+
+        Args:
+            descriptions: List of individual descriptions from document analysis
+            crime_types: Set of identified crime types
+            probability: Probability level (medium or high)
+
+        Returns:
+            A short consolidated description (1-2 sentences) or None if no descriptions provided
+        """
+        if not descriptions:
+            return None
+        
+        # Create a simple prompt for description consolidation
+        consolidation_prompt = f"""
+You are a financial crime analyst. Based on the following individual analysis results, 
+provide a single, concise summary (1-2 sentences maximum) explaining why this entity 
+is suspected of {', '.join(sorted(crime_types))} with {probability} probability.
+
+Individual descriptions:
+{chr(10).join(f"- {desc}" for desc in descriptions)}
+
+Provide a brief, consolidated explanation that captures the key evidence:
+"""
+        
+        try:
+            # Use the LLM directly for text generation instead of structured output
+            response = await self.llm.ainvoke(consolidation_prompt)
+            
+            # Extract text content from the response
+            if hasattr(response, 'content'):
+                final_description = response.content.strip()
+            else:
+                final_description = str(response).strip()
+            
+            # Ensure it's not too long (limit to roughly 2 sentences)
+            if len(final_description) > 200:
+                # Take first two sentences approximately
+                sentences = final_description.split('. ')
+                if len(sentences) >= 2:
+                    final_description = '. '.join(sentences[:2]) + '.'
+                else:
+                    final_description = sentences[0]
+            
+            return final_description if final_description else None
+            
+        except Exception as e:
+            logger.error(f"Error generating final description: {e}")
+            # Fallback to simple concatenation if LLM fails
+            return "; ".join(descriptions[:2])  # Take first 2 descriptions as fallback
 
 
 if __name__ == "__main__":

@@ -446,7 +446,7 @@ class MongoStore(DocStore):
                     query["modified_date"] = {"$gte": within_date}
 
                 cursor = col.find(
-                    query, {"url": 1, "crime_type": 1, "probability": 1, "_id": 0}
+                    query, {"url": 1, "crime_type": 1, "probability": 1, "description": 1, "_id": 0}
                 )
                 result = list(cursor)
 
@@ -535,6 +535,7 @@ class MongoStore(DocStore):
                                 "url": item["url"],
                                 "crime_type": item["crime_type"],
                                 "probability": item["probability"],
+                                "description": item.get("description", "N/A"),
                                 "modified_date": datetime.now(),
                             }
                         },

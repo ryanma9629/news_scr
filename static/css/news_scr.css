@@ -97,4 +97,40 @@ small {
     font-size: var(--font-xs);
 }
 
+/* Description column styling */
+.description-truncated {
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: help;
+}
+
+.description-truncated:hover {
+    background-color: #f8f9fa;
+}
+
+/* Table responsive improvements for description column */
+@media (max-width: 768px) {
+    .description-truncated {
+        max-width: 150px;
+    }
+}
+
+@media (max-width: 576px) {
+    .description-truncated {
+        max-width: 100px;
+    }
+    
+    .table th:nth-child(5),
+    .table td:nth-child(5) {
+        display: none; /* Hide Crime Type column on very small screens */
+    }
+    
+    .table th:nth-child(7),
+    .table td:nth-child(7) {
+        display: none; /* Hide Description column on very small screens */
+    }
+}
+
 

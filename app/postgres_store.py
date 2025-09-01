@@ -170,6 +170,7 @@ class PostgreSQLTagStore:
                             llm_name VARCHAR(100) NOT NULL,
                             crime_type VARCHAR(255),
                             probability VARCHAR(50),
+                            description TEXT,
                             modified_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                             created_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                             UNIQUE(customer_id, company_name, lang, url, method, llm_name)
@@ -178,13 +179,20 @@ class PostgreSQLTagStore:
 
                     cursor.execute(create_table_query)
 
-                    # Check if table exists now and add title column if missing
+                    # Check if table exists now and add missing columns
                     if existing_columns and 'title' not in existing_columns:
                         logger.info("Adding title column to existing table")
                         add_title_column_query = sql.SQL("""
                             ALTER TABLE {} ADD COLUMN title TEXT
                         """).format(self._get_qualified_table_name())
                         cursor.execute(add_title_column_query)
+
+                    if existing_columns and 'description' not in existing_columns:
+                        logger.info("Adding description column to existing table")
+                        add_description_column_query = sql.SQL("""
+                            ALTER TABLE {} ADD COLUMN description TEXT
+                        """).format(self._get_qualified_table_name())
+                        cursor.execute(add_description_column_query)
 
                     # Create indexes for better performance
                     index_queries = [
@@ -310,24 +318,30 @@ class PostgreSQLTagStore:
                             # Use INSERT ... ON CONFLICT for upsert functionality
                             # Only update if values are actually different
                             upsert_query = sql.SQL("""
-                                INSERT INTO {} (customer_id, company_name, lang, url, title, method, llm_name, crime_type, probability, modified_date)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                INSERT INTO {} (customer_id, company_name, lang, url, title, method, llm_name, crime_type, probability, description, modified_date)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON CONFLICT (customer_id, company_name, lang, url, method, llm_name)
                                 DO UPDATE SET
                                     title = EXCLUDED.title,
                                     crime_type = EXCLUDED.crime_type,
                                     probability = EXCLUDED.probability,
+                                    description = EXCLUDED.description,
                                     modified_date = EXCLUDED.modified_date
                                 WHERE 
                                     {}.title IS DISTINCT FROM EXCLUDED.title OR
                                     {}.crime_type IS DISTINCT FROM EXCLUDED.crime_type OR
-                                    {}.probability IS DISTINCT FROM EXCLUDED.probability
+                                    {}.probability IS DISTINCT FROM EXCLUDED.probability OR
+                                    {}.description IS DISTINCT FROM EXCLUDED.description
                             """).format(
                                 self._get_qualified_table_name(),
                                 self._get_qualified_table_name(),
                                 self._get_qualified_table_name(),
                                 self._get_qualified_table_name(),
+                                self._get_qualified_table_name(),
                             )
+
+                            # Get description or default to "N/A" if missing
+                            description = item.get("description", "N/A")
 
                             cursor.execute(
                                 upsert_query,
@@ -341,6 +355,7 @@ class PostgreSQLTagStore:
                                     llm_name,
                                     item["crime_type"],
                                     item["probability"],
+                                    description,
                                     datetime.now(),
                                 ),
                             )
@@ -393,7 +408,7 @@ class PostgreSQLTagStore:
                     url_placeholders = ",".join(["%s"] * len(urls))
 
                     query_parts = [
-                        sql.SQL("SELECT url, title, crime_type, probability FROM {}").format(
+                        sql.SQL("SELECT url, title, crime_type, probability, description FROM {}").format(
                             self._get_qualified_table_name()
                         ),
                         sql.SQL("WHERE LOWER(company_name) = LOWER(%s)"),

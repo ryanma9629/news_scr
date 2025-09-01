@@ -332,6 +332,7 @@ class TaggingResultResponse(BaseModel):
     success: bool
     crime_type: Optional[str] = None
     probability: Optional[str] = None
+    description: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -480,6 +481,7 @@ class ResponseManager:
                             error=error_message,
                             crime_type=None,
                             probability=None,
+                            description=None,
                         )
                     )
                 elif response_class.__name__ == "CrawlerResponse":
@@ -1163,6 +1165,7 @@ async def tag_news_content(request: TaggingRequest):
                         success=True,
                         crime_type=tag.get("crime_type"),
                         probability=tag.get("probability"),
+                        description=tag.get("description"),
                         error=None,
                     )
                 )
@@ -1183,6 +1186,7 @@ async def tag_news_content(request: TaggingRequest):
                         success=False,
                         crime_type=None,
                         probability=None,
+                        description=None,
                         error="Content not found for this URL, please get content first",
                     )
                 )
@@ -1213,6 +1217,7 @@ async def tag_news_content(request: TaggingRequest):
                                 success=True,
                                 crime_type=tag_result.get("crime_type"),
                                 probability=tag_result.get("probability"),
+                                description=tag_result.get("description"),
                                 error=None,
                             )
                         )
@@ -1221,6 +1226,7 @@ async def tag_news_content(request: TaggingRequest):
                                 "url": url,
                                 "crime_type": tag_result.get("crime_type"),
                                 "probability": tag_result.get("probability"),
+                                "description": tag_result.get("description"),
                                 "method": request.tagging_method,
                             }
                         )
@@ -1231,6 +1237,7 @@ async def tag_news_content(request: TaggingRequest):
                                 success=False,
                                 crime_type=None,
                                 probability=None,
+                                description=None,
                                 error=f"Tagging failed: {tag_error}",
                             )
                         )
@@ -1257,6 +1264,7 @@ async def tag_news_content(request: TaggingRequest):
                     "title": url_title_mapping.get(tag["url"]),
                     "crime_type": tag.get("crime_type"),
                     "probability": tag.get("probability"),
+                    "description": tag.get("description"),
                     "method": request.tagging_method,
                 }
                 all_results_for_postgres.append(tag_with_title)
@@ -1268,6 +1276,7 @@ async def tag_news_content(request: TaggingRequest):
                         "title": url_title_mapping.get(tag["url"]),
                         "crime_type": tag.get("crime_type"),
                         "probability": tag.get("probability"),
+                        "description": tag.get("description"),
                         "method": tag["method"],
                     }
                     all_results_for_postgres.append(tag_with_title)
@@ -1309,6 +1318,7 @@ async def tag_news_content(request: TaggingRequest):
                 error=f"System error: {e}",
                 crime_type=None,
                 probability=None,
+                description=None,
             )
             for url in request.urls
         ]
