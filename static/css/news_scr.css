@@ -76,7 +76,8 @@ body {
 }
 
 .search-sidebar {
-    height: calc(100vh - 200px);
+    height: 100vh;
+    min-height: 100vh;
     overflow-y: auto;
 }
 
