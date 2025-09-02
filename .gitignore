@@ -230,8 +230,8 @@ docker-compose.override.yml
 .chroma/
 **/.chroma
 *.model
-*.pkl
-*.pickle
+# *.pkl
+# *.pickle
 checkpoints/
 models/
 *.h5
