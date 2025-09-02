@@ -1,5 +1,65 @@
 /* Professional News Screening Application Styles */
 
+/* Hide navbar when VI_DEPLOY is enabled */
+.vi-deploy-hide-navbar {
+    display: none !important;
+}
+
+/* Adjust container padding when navbar is hidden */
+.vi-deploy-no-navbar {
+    padding-top: 0.5rem !important;
+}
+
+/* Tighter layout styles */
+.container-fluid {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+}
+
+.row.g-4 {
+    --bs-gutter-x: 1rem;
+    --bs-gutter-y: 1rem;
+}
+
+.card,
+.card-header,
+.card-body {
+    padding: 0.75rem !important;
+}
+
+.mb-3,
+.mb-4 {
+    margin-bottom: 0.75rem !important;
+}
+
+.form-control,
+.form-select {
+    padding: 0.3rem 0.5rem !important;
+    font-size: 0.95rem;
+}
+
+.btn-lg {
+    padding: 0.5rem 1rem !important;
+    font-size: 1rem !important;
+}
+
+.btn,
+.btn-outline-primary {
+    padding: 0.4rem 0.8rem !important;
+    font-size: 0.95rem !important;
+}
+
+.modal-content {
+    padding: 0.5rem !important;
+}
+
+.card-title,
+.card-header h6,
+.modal-title {
+    font-size: 1rem !important;
+    margin-bottom: 0 !important;
+}
+
 /* Minimal professional enhancements */
 :root {
     --font-base: 0.875rem;
