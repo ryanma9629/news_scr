@@ -20,17 +20,6 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
-# Handle both relative and absolute imports
-try:
-    # Try relative import first (when used as a module)
-    from .crawler import ApifyCrawler
-except ImportError:
-    # Fall back to absolute import (when used as a standalone script)
-    try:
-        from crawler import ApifyCrawler
-    except ImportError:
-        # If neither works, try importing from the app package
-        from app.crawler import ApifyCrawler
 
 # Load environment variables
 load_dotenv()
@@ -460,6 +449,8 @@ Provide a brief, consolidated explanation that captures the key evidence:
 
 
 if __name__ == "__main__":
+    import pickle
+
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -472,14 +463,7 @@ if __name__ == "__main__":
         )
         emb = AzureOpenAIEmbeddings(azure_deployment="text-embedding-3-small")
 
-        apify_crawler = ApifyCrawler()
-        doc = asyncio.run(
-            apify_crawler.get(
-                [
-                    "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp"
-                ]
-            )
-        )
+        doc = pickle.load(open("sample_doc.pkl", "rb"))
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=100

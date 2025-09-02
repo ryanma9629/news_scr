@@ -26,17 +26,6 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
-# Handle both relative and absolute imports
-try:
-    # Try relative import first (when used as a module)
-    from .crawler import ApifyCrawler
-except ImportError:
-    # Fall back to absolute import (when used as a standalone script)
-    try:
-        from crawler import ApifyCrawler
-    except ImportError:
-        # If neither works, try importing from the app package
-        from app.crawler import ApifyCrawler
 
 # Load environment variables
 load_dotenv()
@@ -746,6 +735,8 @@ class RefinementSummarization(Summarization):
 
 
 if __name__ == "__main__":
+    import pickle
+
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -763,37 +754,27 @@ if __name__ == "__main__":
         # Import embeddings for clustering
         embeddings = AzureOpenAIEmbeddings(azure_deployment="text-embedding-3-small")
 
-        apify_crawler = ApifyCrawler()
-        doc = asyncio.run(
-            apify_crawler.get(
-                [
-                    "https://www.investopedia.com/articles/investing/020116/theranos-fallen-unicorn.asp"
-                ]
-            )
-        )
+        doc = pickle.load(open("sample_doc.pkl", "rb"))
 
         # Debug output - uncomment for testing
-        # print("Summarization with map-reduce (no clustering)")
+        print("Summarization with map-reduce (no clustering)")
         mrsumm = MapReduceSummarization(llm, embeddings)
         summary = asyncio.run(mrsumm.summarize(doc, "Chinese", num_cluster=0))
-        # print(summary)
+        print(summary)
 
-        # print("\nSummarization with map-reduce (with clustering)")
+        print("\nSummarization with map-reduce (with clustering)")
         summary_clustered = asyncio.run(mrsumm.summarize(doc, "Chinese", num_cluster=2))
-        # print(summary_clustered)
+        print(summary_clustered)
 
-        # print("\nSummarization with iterative refinement (no clustering)")
+        print("\nSummarization with iterative refinement (no clustering)")
         refsumm = RefinementSummarization(llm, embeddings)
         summary_ref = asyncio.run(refsumm.summarize(doc, "Chinese", num_cluster=0))
-        # print(summary_ref)
+        print(summary_ref)
 
-        # print("\nSummarization with iterative refinement (with clustering)")
+        print("\nSummarization with iterative refinement (with clustering)")
         summary_ref_clustered = asyncio.run(
             refsumm.summarize(doc, "Chinese", num_cluster=2)
         )
-        # print(summary_ref_clustered)
-
-        # Results available for testing
-        _ = summary, summary_clustered, summary_ref, summary_ref_clustered
+        print(summary_ref_clustered)
 
     main()

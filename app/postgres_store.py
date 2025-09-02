@@ -128,7 +128,7 @@ class PostgreSQLTagStore:
             schema: Optional schema name override
         """
         self.table_name = table_name or os.getenv("POSTGRES_TAGS_TABLE", "fc_tags")
-        self.schema = schema or os.getenv("POSTGRES_SCHEMA", "public")
+        self.schema = schema or os.getenv("POSTGRES_SCHEMA", "namecheck")
         self._ensure_schema_and_table_exist()
         logger.info(f"PostgreSQLTagStore initialized with schema.table: {self.schema}.{self.table_name}")
 
@@ -352,77 +352,6 @@ class PostgreSQLTagStore:
 
         except Exception as e:
             logger.error(f"Error saving tags to PostgreSQL: {e}")
-            raise
-
-    def load_tags(
-        self,
-        urls: List[str],
-        company_name: str,
-        lang: str,
-        method: str,
-        llm_name: str,
-        days: int = 0,
-    ) -> List[dict]:
-        """Load document tags from PostgreSQL.
-
-        Args:
-            urls: List of URLs to load tags for
-            company_name: Name of the company
-            lang: Language code
-            method: Tagging method used
-            llm_name: Name of the LLM used for tagging
-            days: Number of days to look back for data (0 for all)
-
-        Returns:
-            List of dictionaries containing document tags
-
-        Raises:
-            Exception: If database operation fails
-        """
-        if not urls:
-            logger.warning("Empty URLs list provided to load_tags")
-            return []
-
-        try:
-            with _postgres_manager.get_connection() as conn:
-                with conn.cursor(
-                    cursor_factory=psycopg2.extras.RealDictCursor
-                ) as cursor:
-                    # Build query with placeholders for URLs
-                    url_placeholders = ",".join(["%s"] * len(urls))
-
-                    query_parts = [
-                        sql.SQL("SELECT url, title, crime_type, probability, description FROM {}").format(
-                            self._get_qualified_table_name()
-                        ),
-                        sql.SQL("WHERE LOWER(company_name) = LOWER(%s)"),
-                        sql.SQL("AND LOWER(lang) = LOWER(%s)"),
-                        sql.SQL("AND method = %s"),
-                        sql.SQL("AND llm_name = %s"),
-                        sql.SQL("AND url IN ({})").format(sql.SQL(url_placeholders)),
-                    ]
-
-                    query_params = [company_name, lang, method, llm_name] + urls
-
-                    # Add date filter if days is specified
-                    if days > 0:
-                        within_date = datetime.now() - timedelta(days=days)
-                        query_parts.append(sql.SQL("AND modified_date >= %s"))
-                        query_params.append(within_date)
-
-                    final_query = sql.SQL(" ").join(query_parts)
-                    cursor.execute(final_query, query_params)
-
-                    results = cursor.fetchall()
-                    result_list = [dict(row) for row in results]
-
-                    logger.info(
-                        f"Loaded {len(result_list)} tags from PostgreSQL for {len(urls)} URLs (within {days} days)"
-                    )
-                    return result_list
-
-        except Exception as e:
-            logger.error(f"Error loading tags from PostgreSQL: {e}")
             raise
 
     def close(self):
