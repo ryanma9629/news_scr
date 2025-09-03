@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field, SecretStr
 from starlette.middleware.sessions import SessionMiddleware
 
 from .crawler import ApifyCrawler, CrawlerType
-from .doc_store import MongoStore, _mongo_manager
+from .doc_store import MongoStore, RedisStore, _mongo_manager
 from .postgres_store import PostgreSQLTagStore
 from .query import QAWithContext
 from .summarization import (
@@ -223,6 +223,9 @@ class CrawlerRequest(BaseModel):
         None, description="Customer identifier for multi-tenant support"
     )
     lang: str = Field(..., description="Language code for storage")
+    storage_type: str = Field(
+        default="mongo", description="Persistent storage type ('redis' or 'mongo')"
+    )
     contents_save: bool = Field(default=True, description="Save contents to storage")
     contents_load: bool = Field(
         default=True, description="Load contents from storage if possible"
@@ -245,6 +248,9 @@ class TaggingRequest(BaseModel):
         None, description="Customer identifier for multi-tenant support"
     )
     lang: str = Field(..., description="Language code for storage")
+    storage_type: str = Field(
+        default="mongo", description="Persistent storage type ('redis' or 'mongo')"
+    )
     tagging_method: str = Field(
         default="rag", description="Tagging method ('rag' or 'all')"
     )
@@ -391,7 +397,7 @@ class ContentManager:
 
     @staticmethod
     def load_with_fallback(
-        mongo_store: MongoStore, urls: List[str], session_id: str, days: int = 0
+        doc_store, urls: List[str], session_id: str, days: int = 0
     ) -> Tuple[List[Dict[str, str]], List[str]]:
         """Load contents from storage with session fallback."""
         session_data = get_session_data(session_id)
@@ -407,12 +413,13 @@ class ContentManager:
 
         if missing_urls:
             try:
-                fallback_contents = mongo_store.load_contents(missing_urls, days=days)
+                fallback_contents = doc_store.load_contents(missing_urls, days=days)
                 contents.extend(fallback_contents)
                 fallback_urls = {content["url"] for content in fallback_contents}
                 missing_urls = [url for url in missing_urls if url not in fallback_urls]
             except Exception as e:
-                logger.error(f"Error loading from MongoDB: {e}")
+                storage_type = "Redis" if isinstance(doc_store, RedisStore) else "MongoDB"
+                logger.error(f"Error loading from {storage_type}: {e}")
 
         return contents, missing_urls
 
@@ -670,10 +677,10 @@ def get_contents_from_session_with_validation(
 
 
 def load_from_storage_with_fallback(
-    mongo_store: MongoStore, urls: List[str], session_id: str, days: int = 0
+    doc_store, urls: List[str], session_id: str, days: int = 0
 ) -> Tuple[List[Dict[str, str]], List[str]]:
     """Load contents from storage with session fallback."""
-    return ContentManager.load_with_fallback(mongo_store, urls, session_id, days)
+    return ContentManager.load_with_fallback(doc_store, urls, session_id, days)
 
 
 def handle_storage_operation(operation_func, operation_name: str, *args, **kwargs):
@@ -701,6 +708,17 @@ def get_fallback_port(preferred_port: int) -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def get_doc_store(storage_type: str, company_name: str, lang: str):
+    """Get appropriate document store based on storage type."""
+    storage_type = storage_type.lower()
+    if storage_type == "redis":
+        return RedisStore(company_name=company_name, lang=lang)
+    elif storage_type == "mongo":
+        return MongoStore(company_name=company_name, lang=lang)
+    else:
+        raise ValueError(f"Unsupported storage type: {storage_type}. Supported types: 'redis', 'mongo'")
 
 
 # =============================================================================
@@ -994,16 +1012,26 @@ async def crawl_news_content(request: CrawlerRequest):
                 message=validation_error or "Validation failed",
             )
 
-        mongo_store = MongoStore(company_name=request.company_name, lang=request.lang)
+        try:
+            doc_store = get_doc_store(request.storage_type, request.company_name, request.lang)
+        except ValueError as e:
+            return CrawlerResponse(
+                success=False,
+                results=[],
+                total_results=0,
+                message=str(e),
+            )
+
         results = []
         contents_from_db = []
 
         # Load from storage if enabled
         if request.contents_load:
+            storage_name = "Redis" if request.storage_type.lower() == "redis" else "MongoDB"
             contents_from_db = (
                 handle_storage_operation(
-                    mongo_store.load_contents,
-                    "loaded contents from MongoDB",
+                    doc_store.load_contents,
+                    f"loaded contents from {storage_name}",
                     request.urls,
                     days=request.contents_load_days,
                 )
@@ -1074,9 +1102,10 @@ async def crawl_news_content(request: CrawlerRequest):
 
         # Save to storage and session
         if request.contents_save and crawled_contents:
+            storage_name = "Redis" if request.storage_type.lower() == "redis" else "MongoDB"
             handle_storage_operation(
-                mongo_store.save_contents,
-                "saved contents to MongoDB",
+                doc_store.save_contents,
+                f"saved contents to {storage_name}",
                 crawled_contents,
                 days=request.contents_save_days,
             )
@@ -1139,16 +1168,26 @@ async def tag_news_content(request: TaggingRequest):
                 message=validation_error or "Validation failed",
             )
 
-        mongo_store = MongoStore(company_name=request.company_name, lang=request.lang)
+        try:
+            doc_store = get_doc_store(request.storage_type, request.company_name, request.lang)
+        except ValueError as e:
+            return TaggingResponse(
+                success=False,
+                results=[],
+                total_results=0,
+                message=str(e),
+            )
+
         results = []
 
         # Load existing tags from storage
         tags_from_db = []
         if request.tags_load:
+            storage_name = "Redis" if request.storage_type.lower() == "redis" else "MongoDB"
             tags_from_db = (
                 handle_storage_operation(
-                    mongo_store.load_tags,
-                    "loaded tags from MongoDB",
+                    doc_store.load_tags,
+                    f"loaded tags from {storage_name}",
                     request.urls,
                     method=request.tagging_method,
                     llm_name=request.llm_model,
@@ -1176,7 +1215,7 @@ async def tag_news_content(request: TaggingRequest):
         # Tag remaining URLs
         if urls_to_tag:
             contents_to_tag, urls_without_content = load_from_storage_with_fallback(
-                mongo_store, urls_to_tag, session_id or ""
+                doc_store, urls_to_tag, session_id or ""
             )
 
             for url in urls_without_content:
@@ -1243,9 +1282,10 @@ async def tag_news_content(request: TaggingRequest):
                         )
 
                 if tagged_results and request.tags_save:
+                    storage_name = "Redis" if request.storage_type.lower() == "redis" else "MongoDB"
                     handle_storage_operation(
-                        mongo_store.save_tags,
-                        "saved tags to MongoDB",
+                        doc_store.save_tags,
+                        f"saved tags to {storage_name}",
                         tagged_results,
                         method=request.tagging_method,
                         llm_name=request.llm_model,
