@@ -427,7 +427,12 @@ Provide a brief, consolidated explanation that captures the key evidence:
             
             # Extract text content from the response
             if hasattr(response, 'content'):
-                final_description = response.content.strip()
+                content = response.content
+                if isinstance(content, list):
+                    # Join list elements if content is a list
+                    final_description = ' '.join(str(item) for item in content).strip()
+                else:
+                    final_description = str(content).strip()
             else:
                 final_description = str(response).strip()
             

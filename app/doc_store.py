@@ -654,6 +654,11 @@ class RedisStore(DocStore):
                 key = self._get_content_key(url)
                 content_data = self.client.get(key)
                 if content_data:
+                    # Ensure content_data is a string before parsing JSON
+                    if isinstance(content_data, bytes):
+                        content_data = content_data.decode('utf-8')
+                    elif not isinstance(content_data, str):
+                        content_data = str(content_data)
                     content = json.loads(content_data)
                     
                     # Apply days filter if specified
@@ -714,6 +719,11 @@ class RedisStore(DocStore):
                     existing_data = self.client.get(key)
                     if existing_data:
                         try:
+                            # Ensure existing_data is a string before parsing JSON
+                            if isinstance(existing_data, bytes):
+                                existing_data = existing_data.decode('utf-8')
+                            elif not isinstance(existing_data, str):
+                                existing_data = str(existing_data)
                             existing_content = json.loads(existing_data)
                             if "modified_date" in existing_content:
                                 modified_date = datetime.fromisoformat(existing_content["modified_date"])
@@ -780,6 +790,11 @@ class RedisStore(DocStore):
                 key = self._get_tag_key(url, method, llm_name)
                 tag_data = self.client.get(key)
                 if tag_data:
+                    # Ensure tag_data is a string before parsing JSON
+                    if isinstance(tag_data, bytes):
+                        tag_data = tag_data.decode('utf-8')
+                    elif not isinstance(tag_data, str):
+                        tag_data = str(tag_data)
                     tag = json.loads(tag_data)
                     
                     # Apply days filter if specified
@@ -850,6 +865,11 @@ class RedisStore(DocStore):
                     existing_data = self.client.get(key)
                     if existing_data:
                         try:
+                            # Ensure existing_data is a string before parsing JSON
+                            if isinstance(existing_data, bytes):
+                                existing_data = existing_data.decode('utf-8')
+                            elif not isinstance(existing_data, str):
+                                existing_data = str(existing_data)
                             existing_tag = json.loads(existing_data)
                             if "modified_date" in existing_tag:
                                 modified_date = datetime.fromisoformat(existing_tag["modified_date"])
