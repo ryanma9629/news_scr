@@ -179,10 +179,24 @@ const Utils = {
         '&': '&amp;', '<': '&lt;', '>': '&gt;',
         '"': '&quot;', "'": '&#039;'
     },
+    // Cache for DOM selectors to avoid repeated queries
+    _domCache: new Map(),
     
     escapeHtml(text) {
         if (!text) return '';
         return text.replace(this._htmlEscapeRegex, m => this._htmlEscapeMap[m]);
+    },
+
+    getElement(selector, useCache = true) {
+        if (!useCache) return document.querySelector(selector);
+        if (!this._domCache.has(selector)) {
+            this._domCache.set(selector, document.querySelector(selector));
+        }
+        return this._domCache.get(selector);
+    },
+
+    clearDomCache() {
+        this._domCache.clear();
     },
 
     getDomainFromUrl(url) {
@@ -195,13 +209,21 @@ const Utils = {
     },
 
     getFormData() {
+        // Use cached selectors for better performance
+        const companyNameEl = Utils.getElement('#company_name');
+        const langEl = Utils.getElement('#lang');
+        const searchSuffixEl = Utils.getElement('#search_suffix');
+        const searchEngineEl = Utils.getElement('#search_engine');
+        const numResultsEl = Utils.getElement('#num_results');
+        const llmModelEl = Utils.getElement('#llm_model');
+        
         const formData = {
-            company_name: $('#company_name').val().trim(),
-            lang: $('#lang').val(),
-            search_suffix: $('#search_suffix').val(),
-            search_engine: $('#search_engine').val(),
-            num_results: parseInt($('#num_results').val()),
-            llm_model: $('#llm_model').val()
+            company_name: companyNameEl?.value.trim() || '',
+            lang: langEl?.value || '',
+            search_suffix: searchSuffixEl?.value || '',
+            search_engine: searchEngineEl?.value || '',
+            num_results: parseInt(numResultsEl?.value) || 0,
+            llm_model: llmModelEl?.value || ''
         };
 
         // Add customer_id and validate LLM model
@@ -370,84 +392,86 @@ function handleSearchSuccess(response) {
 }
 
 function displaySearchResults(results) {
-    // Use DocumentFragment for better performance
-    const fragment = document.createDocumentFragment();
-    
-    // Create header
-    const headerDiv = document.createElement('div');
-    headerDiv.className = 'd-flex justify-content-between align-items-center mb-3';
-    headerDiv.innerHTML = '<h5 class="mb-0">Search Results</h5>';
-    
-    // Create table with optimized approach
-    const tableContainer = document.createElement('div');
-    tableContainer.className = 'table-responsive';
-    
-    const table = document.createElement('table');
-    table.className = 'table table-striped table-hover';
-    table.id = 'news-results-table';
-    
-    table.innerHTML = `
-        <thead>
-            <tr>
-                <th scope="col" style="width: 5%">No.</th>
-                <th scope="col" style="width: 35%">News Title</th>
-                <th scope="col" style="width: 15%">Source</th>
-                <th scope="col" style="width: 10%">Content</th>
-            </tr>
-        </thead>
-        <tbody>
-            ${results.map((result, index) => `
-                <tr data-url="${result.url}" data-index="${index}">
-                    <td class="text-center">${index + 1}</td>
-                    <td>
-                        <a href="${result.url}" target="_blank" class="text-decoration-none" 
-                           title="${Utils.escapeHtml(result.title)}">
-                            ${Utils.escapeHtml(result.title)}
-                        </a>
-                    </td>
-                    <td>
-                        <small class="text-muted" title="${result.url}">
-                            ${Utils.getDomainFromUrl(result.url)}
-                        </small>
-                    </td>
-                    <td class="text-center content-status" data-index="${index}" data-url="${result.url}">
-                        <span class="text-muted">-</span>
-                    </td>
-                </tr>
-            `).join('')}
-        </tbody>
+    // Pre-escape all titles once for better performance
+    const escapedResults = results.map((result, index) => ({
+        ...result,
+        escapedTitle: Utils.escapeHtml(result.title),
+        domain: Utils.getDomainFromUrl(result.url),
+        index
+    }));
+
+    // Create the complete HTML structure using template literals for better performance
+    const containerHtml = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">Search Results</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-striped table-hover" id="news-results-table">
+                <thead>
+                    <tr>
+                        <th scope="col" style="width: 5%">No.</th>
+                        <th scope="col" style="width: 35%">News Title</th>
+                        <th scope="col" style="width: 15%">Source</th>
+                        <th scope="col" style="width: 10%">Content</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${escapedResults.map(result => `
+                        <tr data-url="${result.url}" data-index="${result.index}">
+                            <td class="text-center">${result.index + 1}</td>
+                            <td>
+                                <a href="${result.url}" target="_blank" class="text-decoration-none" 
+                                   title="${result.escapedTitle}">
+                                    ${result.escapedTitle}
+                                </a>
+                            </td>
+                            <td>
+                                <small class="text-muted" title="${result.url}">
+                                    ${result.domain}
+                                </small>
+                            </td>
+                            <td class="text-center content-status" data-index="${result.index}" data-url="${result.url}">
+                                <span class="text-muted">-</span>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-3 text-muted">
+            <small>Found ${results.length} news articles</small>
+        </div>
     `;
     
-    tableContainer.appendChild(table);
-    
-    // Create footer
-    const footerDiv = document.createElement('div');
-    footerDiv.className = 'mt-3 text-muted';
-    footerDiv.innerHTML = `<small>Found ${results.length} news articles</small>`;
-    
-    // Assemble and insert in one operation
-    fragment.appendChild(headerDiv);
-    fragment.appendChild(tableContainer);
-    fragment.appendChild(footerDiv);
-    
-    const container = $('#div_search_res')[0];
-    container.innerHTML = '';
-    container.appendChild(fragment);
-    $(container).show();
+    // Single DOM operation to update content
+    const container = document.getElementById('div_search_res');
+    container.innerHTML = containerHtml;
+    container.style.display = 'block';
 }
 
 function hideSearchResults() {
-    $('#div_search_res').hide();
-    $('#div_operation').hide();
+    const searchDiv = document.getElementById('div_search_res');
+    const operationDiv = document.getElementById('div_operation');
+    
+    if (searchDiv) searchDiv.style.display = 'none';
+    if (operationDiv) operationDiv.style.display = 'none';
     UIState.disableButtons('#btn_crawler, #btn_tagging, #btn_summary, #btn_qa');
 }
 
 function clearPreviousResults() {
     // Clear Summary
-    $('#div_summary_res').empty().hide();
+    const summaryDiv = document.getElementById('div_summary_res');
+    if (summaryDiv) {
+        summaryDiv.innerHTML = '';
+        summaryDiv.style.display = 'none';
+    }
 
     // Clear Q&A  
-    $('#div_qa_res').empty().hide();
+    const qaDiv = document.getElementById('div_qa_res');
+    if (qaDiv) {
+        qaDiv.innerHTML = '';
+        qaDiv.style.display = 'none';
+    }
 }
 
 // Content crawling functionality
@@ -455,7 +479,9 @@ function getNewsContent() {
     if (!Utils.validateResults() || !Utils.validateSession()) return;
 
     // Set loading status for all content cells
-    $('.content-status').html('<i class="bi bi-hourglass-split text-warning" title="Loading"></i>');
+    document.querySelectorAll('.content-status').forEach(cell => {
+        cell.innerHTML = '<i class="bi bi-hourglass-split text-warning" title="Loading"></i>';
+    });
 
     const requestData = {
         urls: AppState.getUrls(),
@@ -501,33 +527,40 @@ function handleContentSuccess(response) {
         // Create URL to index mapping for efficiency
         const urlToIndex = Utils.createUrlToIndexMapping();
         
-        // Batch DOM updates for better performance
-        const updates = [];
-
-        response.results.forEach(result => {
-            const index = urlToIndex.get(result.url);
+        // Batch DOM updates using requestAnimationFrame for better performance
+        const statusCells = document.querySelectorAll('.content-status');
+        const cellMap = new Map();
+        statusCells.forEach(cell => {
+            const index = cell.dataset.index;
             if (index !== undefined) {
-                const statusCell = document.querySelector(`.content-status[data-index="${index}"]`);
-                if (statusCell) {
-                    if (result.success && result.content) {
-                        updates.push({ element: statusCell, content: '<i class="bi bi-check-circle-fill text-success" title="Success"></i>' });
-                        successCount++;
-                    } else {
-                        const errorMsg = Utils.escapeHtml(result.error || 'Failed');
-                        updates.push({ element: statusCell, content: `<i class="bi bi-x-circle-fill text-danger" title="${errorMsg}"></i>` });
-                        failCount++;
-                    }
-                } else {
-                    failCount++;
-                }
-            } else {
-                failCount++;
+                cellMap.set(parseInt(index), cell);
             }
         });
+
+        // Process results and prepare batch update
+        const updates = response.results.map(result => {
+            const index = urlToIndex.get(result.url);
+            const statusCell = index !== undefined ? cellMap.get(index) : null;
+            
+            if (statusCell) {
+                if (result.success && result.content) {
+                    successCount++;
+                    return { cell: statusCell, html: '<i class="bi bi-check-circle-fill text-success" title="Success"></i>' };
+                } else {
+                    failCount++;
+                    const errorMsg = Utils.escapeHtml(result.error || 'Failed');
+                    return { cell: statusCell, html: `<i class="bi bi-x-circle-fill text-danger" title="${errorMsg}"></i>` };
+                }
+            }
+            failCount++;
+            return null;
+        }).filter(update => update !== null);
         
-        // Apply all DOM updates at once
-        updates.forEach(update => {
-            update.element.innerHTML = update.content;
+        // Apply all DOM updates in a single animation frame
+        requestAnimationFrame(() => {
+            updates.forEach(update => {
+                update.cell.innerHTML = update.html;
+            });
         });
 
         AlertManager.show(`Content retrieval completed: ${successCount} successful, ${failCount} failed`, 'success', false);
@@ -540,8 +573,12 @@ function handleContentSuccess(response) {
         }
     } else {
         AlertManager.show(response.message || 'Content retrieval failed', 'danger');
-        document.querySelectorAll('.content-status').forEach(cell => {
-            cell.innerHTML = '<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>';
+        // Batch update all status cells to failed state
+        const statusCells = document.querySelectorAll('.content-status');
+        requestAnimationFrame(() => {
+            statusCells.forEach(cell => {
+                cell.innerHTML = '<i class="bi bi-x-circle-fill text-danger" title="Failed"></i>';
+            });
         });
         UIState.disableButtons('#btn_tagging, #btn_summary, #btn_qa');
     }
@@ -579,7 +616,7 @@ function performTagging() {
         }
     })
         .done(handleTaggingSuccess)
-        .fail((xhr, status, error) => {
+        .fail((xhr, status) => {
             AlertManager.hide();
             const message = AjaxHelper.handleError(xhr, status, 'FC tagging');
             AlertManager.showError('FC Tagging Failed', message);
@@ -624,54 +661,61 @@ function handleTaggingSuccess(response) {
         let failCount = 0;
 
         // Add table columns if they don't exist
-        const tableHeader = $('#news-results-table thead tr');
-        if (!tableHeader.find('th:contains("Crime Type")').length) {
-            tableHeader.append('<th scope="col" style="width: 30%">Crime Type</th>');
-            tableHeader.append('<th scope="col" style="width: 15%">Probability</th>');
+        const table = document.getElementById('news-results-table');
+        const headerRow = table?.querySelector('thead tr');
+        if (headerRow && !headerRow.textContent.includes('Crime Type')) {
+            const crimeHeader = document.createElement('th');
+            crimeHeader.setAttribute('scope', 'col');
+            crimeHeader.style.width = '30%';
+            crimeHeader.textContent = 'Crime Type';
+            
+            const probHeader = document.createElement('th');
+            probHeader.setAttribute('scope', 'col');
+            probHeader.style.width = '15%';
+            probHeader.textContent = 'Probability';
+            
+            headerRow.appendChild(crimeHeader);
+            headerRow.appendChild(probHeader);
         }
 
         // Create URL to index mapping for efficiency
         const urlToIndex = Utils.createUrlToIndexMapping();
+        const tableRows = table?.querySelectorAll('tbody tr') || [];
 
+        // Process results and prepare batch updates
+        const rowUpdates = [];
+        
         response.results.forEach(result => {
             const index = urlToIndex.get(result.url);
-            const row = $(`#news-results-table tbody tr[data-index="${index}"]`);
+            const row = Array.from(tableRows).find(r => r.dataset.index === String(index));
 
-            if (row.length > 0) {
+            if (row) {
                 // Add new columns to row if they don't exist
-                if (row.find('td').length < 6) {
-                    row.append('<td class="crime-type"></td>');
-                    row.append('<td class="probability"></td>');
+                if (row.children.length < 6) {
+                    const crimeCell = document.createElement('td');
+                    crimeCell.className = 'crime-type';
+                    const probCell = document.createElement('td');
+                    probCell.className = 'probability';
+                    
+                    row.appendChild(crimeCell);
+                    row.appendChild(probCell);
                 }
 
+                const crimeTypeCell = row.querySelector('.crime-type');
+                const probabilityCell = row.querySelector('.probability');
+
                 if (result.success && result.crime_type && result.probability) {
-                    const $crimeTypeCell = row.find('.crime-type');
-                    const $probabilityCell = row.find('.probability');
-                    
-                    $crimeTypeCell.text(result.crime_type);
-                    $probabilityCell.text(result.probability);
-                    
-                    // Add description as tooltip to both crime type and probability cells
-                    const description = result.description;
-                    if (description && description !== '-' && description.trim() !== '') {
-                        $crimeTypeCell.attr('title', description);
-                        $probabilityCell.attr('title', description);
-                        
-                        // Add Bootstrap tooltip styling
-                        $crimeTypeCell.attr('data-bs-toggle', 'tooltip');
-                        $crimeTypeCell.attr('data-bs-placement', 'top');
-                        $probabilityCell.attr('data-bs-toggle', 'tooltip');
-                        $probabilityCell.attr('data-bs-placement', 'top');
-                        
-                        // Add visual indicator that tooltip is available
-                        $crimeTypeCell.addClass('has-tooltip');
-                        $probabilityCell.addClass('has-tooltip');
-                    }
-                    
+                    rowUpdates.push({
+                        crimeTypeCell,
+                        probabilityCell,
+                        crimeType: result.crime_type,
+                        probability: result.probability,
+                        description: result.description
+                    });
                     successCount++;
                 } else {
-                    row.find('.crime-type').text('-');
-                    row.find('.probability').text('-');
+                    if (crimeTypeCell) crimeTypeCell.textContent = '-';
+                    if (probabilityCell) probabilityCell.textContent = '-';
                     failCount++;
                 }
             } else {
@@ -679,8 +723,29 @@ function handleTaggingSuccess(response) {
             }
         });
 
-        // Initialize Bootstrap tooltips for the newly added elements
-        $('[data-bs-toggle="tooltip"]').tooltip();
+        // Apply batch updates using requestAnimationFrame
+        requestAnimationFrame(() => {
+            rowUpdates.forEach(({ crimeTypeCell, probabilityCell, crimeType, probability, description }) => {
+                if (crimeTypeCell) crimeTypeCell.textContent = crimeType;
+                if (probabilityCell) probabilityCell.textContent = probability;
+                
+                // Add description as tooltip
+                if (description && description !== '-' && description.trim() !== '') {
+                    [crimeTypeCell, probabilityCell].forEach(cell => {
+                        if (cell) {
+                            cell.title = description;
+                            cell.setAttribute('data-bs-toggle', 'tooltip');
+                            cell.setAttribute('data-bs-placement', 'top');
+                            cell.classList.add('has-tooltip');
+                        }
+                    });
+                }
+            });
+            
+            // Initialize Bootstrap tooltips for newly added elements
+            const tooltipElements = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+            tooltipElements.forEach(el => new bootstrap.Tooltip(el));
+        });
 
         AlertManager.show(`FC tagging completed: ${successCount} successful, ${failCount} failed`, 'success', false);
     } else {
@@ -719,7 +784,7 @@ function performSummary() {
         }
     })
         .done(handleSummarySuccess)
-        .fail((xhr, status, error) => {
+        .fail((xhr, status) => {
             AlertManager.hide();
             const message = AjaxHelper.handleError(xhr, status, 'Summary generation');
             AlertManager.showError('Summary Generation Failed', message);
@@ -761,14 +826,23 @@ function displaySummaryResult(summary) {
         </div>
     `;
 
-    $('#div_summary_res').html(summaryHtml).show();
+    const summaryDiv = document.getElementById('div_summary_res');
+    if (summaryDiv) {
+        summaryDiv.innerHTML = summaryHtml;
+        summaryDiv.style.display = 'block';
+    }
 }
 
 // QA functionality
 function performQA() {
     if (!Utils.validateResults() || !Utils.validateSession()) return;
 
-    const question = $('#ta_qa_query').val().trim();
+    const qaQueryEl = Utils.getElement('#ta_qa_query');
+    const companyNameEl = Utils.getElement('#company_name');
+    const langEl = Utils.getElement('#lang');
+    const llmModelEl = Utils.getElement('#llm_model');
+    
+    const question = qaQueryEl?.value.trim() || '';
     if (!question) {
         AlertManager.show('Please enter a question', 'warning');
         return;
@@ -776,10 +850,10 @@ function performQA() {
 
     const requestData = {
         question: question,
-        company_name: $('#company_name').val().trim(),
-        lang: $('#lang').val(),
+        company_name: companyNameEl?.value.trim() || '',
+        lang: langEl?.value || '',
         urls: AppState.getUrls(),
-        llm_model: $('#llm_model').val(),
+        llm_model: llmModelEl?.value || '',
         session_id: AppState.sessionId
     };
 
@@ -795,7 +869,7 @@ function performQA() {
         }
     })
         .done(handleQASuccess)
-        .fail((xhr, status, error) => {
+        .fail((xhr, status) => {
             AlertManager.hide();
             const message = AjaxHelper.handleError(xhr, status, 'Q&A processing');
             AlertManager.showError('Q&A Processing Failed', message);
@@ -885,11 +959,15 @@ function displayQAResult(question, answer, urls = []) {
 }
 
 function setDefaultQAQuery() {
-    const companyName = $('#company_name').val().trim();
-    const lang = $('#lang').val();
+    const companyNameEl = Utils.getElement('#company_name');
+    const langEl = Utils.getElement('#lang');
+    const qaQueryEl = Utils.getElement('#ta_qa_query');
+    
+    const companyName = companyNameEl?.value.trim() || '';
+    const lang = langEl?.value || '';
 
     if (!companyName) {
-        $('#ta_qa_query').val('');
+        if (qaQueryEl) qaQueryEl.value = '';
         return;
     }
 
@@ -902,7 +980,7 @@ function setDefaultQAQuery() {
     };
 
     const defaultQuery = queryTemplates[lang] || queryTemplates['en-US'];
-    $('#ta_qa_query').val(defaultQuery);
+    if (qaQueryEl) qaQueryEl.value = defaultQuery;
 }
 
 
