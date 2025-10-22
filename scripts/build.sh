@@ -18,15 +18,16 @@ fi
 
 # Build the Docker image
 echo "🔨 Building Docker image..."
-docker-compose -f docker/docker-compose.yml build
+# Use Docker Compose plugin via `docker compose` instead of the deprecated `docker-compose` binary
+docker compose -f docker/docker-compose.yml build
 
 echo "✅ Build completed successfully!"
 echo ""
 echo "To start the application:"
-echo "  docker-compose -f docker/docker-compose.yml up -d"
+echo "  docker compose -f docker/docker-compose.yml up -d"
 echo ""
 echo "To view logs:"
-echo "  docker-compose -f docker/docker-compose.yml logs -f"
+echo "  docker compose -f docker/docker-compose.yml logs -f"
 echo ""
 echo "To stop the application:"
-echo "  docker-compose -f docker/docker-compose.yml down"
+echo "  docker compose -f docker/docker-compose.yml down"

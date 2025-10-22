@@ -37,8 +37,9 @@ check_dependencies() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null; then
-        print_error "Docker Compose is not installed. Please install Docker Compose first."
+    # Prefer the Docker Compose plugin (docker compose). If not available, allow the legacy docker-compose binary.
+    if ! (docker compose version > /dev/null 2>&1 || command -v docker-compose &> /dev/null); then
+        print_error "Docker Compose (plugin or legacy binary) is not available. Please install the Docker Compose plugin or docker-compose binary."
         exit 1
     fi
     
@@ -63,14 +64,14 @@ setup_env() {
 # Build the application
 build() {
     print_info "Building Adverse News Screening Docker image..."
-    docker-compose -f docker/docker-compose.yml build
+    docker compose -f docker/docker-compose.yml build
     print_success "Build completed successfully!"
 }
 
 # Start the application
 start() {
     print_info "Starting Adverse News Screening application..."
-    docker-compose -f docker/docker-compose.yml up -d
+    docker compose -f docker/docker-compose.yml up -d
     
     print_success "Application started successfully!"
     print_info "Access the application at: https://localhost:8280"
@@ -79,23 +80,23 @@ start() {
 # Stop the application
 stop() {
     print_info "Stopping Adverse News Screening application..."
-    docker-compose -f docker/docker-compose.yml down
+    docker compose -f docker/docker-compose.yml down
     print_success "Application stopped successfully!"
 }
 
 # Show logs
 logs() {
     if [ "$1" ]; then
-        docker-compose -f docker/docker-compose.yml logs -f "$1"
+        docker compose -f docker/docker-compose.yml logs -f "$1"
     else
-        docker-compose -f docker/docker-compose.yml logs -f
+        docker compose -f docker/docker-compose.yml logs -f
     fi
 }
 
 # Show status
 status() {
     print_info "Application status:"
-    docker-compose -f docker/docker-compose.yml ps
+    docker compose -f docker/docker-compose.yml ps
 }
 
 # Clean up (remove containers and volumes)
@@ -105,7 +106,7 @@ clean() {
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         print_info "Cleaning up..."
-        docker-compose -f docker/docker-compose.yml down -v --remove-orphans
+    docker compose -f docker/docker-compose.yml down -v --remove-orphans
         docker system prune -f
         print_success "Cleanup completed!"
     else

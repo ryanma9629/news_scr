@@ -77,13 +77,13 @@ Build and start the application:
 ./scripts/build.sh
 
 # Start the application
-docker-compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml up -d
 
 # View logs
-docker-compose -f docker/docker-compose.yml logs -f
+docker compose -f docker/docker-compose.yml logs -f
 
 # Stop the application
-docker-compose -f docker/docker-compose.yml down
+docker compose -f docker/docker-compose.yml down
 ```
 
 Or use the management script:
@@ -236,7 +236,7 @@ python config/ssl/generate_ssl.py
 Use the production compose file:
 
 ```bash
-docker-compose -f docker/docker-compose.prod.yml up -d
+docker compose -f docker/docker-compose.prod.yml up -d
 ```
 
 ### Container Registry
@@ -271,7 +271,7 @@ View application logs:
 
 ```bash
 # Docker
-docker-compose -f docker/docker-compose.yml logs -f
+docker compose -f docker/docker-compose.yml logs -f
 
 # Or using the management script
 ./scripts/docker.sh logs
