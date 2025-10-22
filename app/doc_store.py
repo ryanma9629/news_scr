@@ -16,6 +16,8 @@ from typing import List, Optional
 
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
+import redis
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -567,6 +569,353 @@ class MongoStore(DocStore):
                 logger.info("Database connection managed by connection pool")
         except Exception as e:
             logger.error(f"Error closing database connection: {e}")
+
+    def __enter__(self):
+        """Context manager entry point."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit point."""
+        # Parameters are required by context manager protocol
+        _ = exc_type, exc_val, exc_tb  # Suppress unused variable warnings
+        self.close()
+
+
+class RedisStore(DocStore):
+    """
+    Redis implementation of document storage.
+
+    This class provides document storage functionality using Redis,
+    with support for content management and tag storage operations.
+    """
+
+    def __init__(
+        self,
+        company_name: str,
+        lang: str,
+        redis_url: Optional[str] = None,
+        redis_client: Optional[redis.Redis] = None,
+    ) -> None:
+        """Initialize Redis document store.
+
+        Args:
+            company_name: Name of the company
+            lang: Language code
+            redis_url: Redis connection URL
+            redis_client: Optional Redis client instance
+        """
+        super().__init__(company_name, lang)
+
+        if redis_client:
+            self.client = redis_client
+            self._owns_client = False
+        else:
+            redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
+            self.client = redis.from_url(redis_url, decode_responses=True)
+            self._owns_client = True
+            
+        logger.info(
+            f"RedisStore initialized for company: {company_name}, lang: {lang}"
+        )
+
+    def _get_content_key(self, url: str) -> str:
+        """Generate Redis key for content storage."""
+        return f"news_scr:content:{self.company_name}:{self.lang}:{url}"
+
+    def _get_tag_key(self, url: str, method: str, llm_name: str) -> str:
+        """Generate Redis key for tag storage."""
+        return f"news_scr:tags:{self.company_name}:{self.lang}:{method}:{llm_name}:{url}"
+
+    def load_contents(
+        self,
+        urls: List[str],
+        collection: Optional[str] = None,
+        days: int = 0,
+    ) -> List[dict]:
+        """Load document contents from Redis.
+
+        Args:
+            urls: List of URLs to load contents for
+            collection: Not used in Redis implementation (for API compatibility)
+            days: Number of days to look back for data (0 for all)
+
+        Returns:
+            List of dictionaries containing document contents
+        """
+        if not urls:
+            logger.warning("Empty URLs list provided to load_contents")
+            return []
+
+        try:
+            result = []
+            current_time = datetime.now()
+            
+            for url in urls:
+                key = self._get_content_key(url)
+                content_data = self.client.get(key)
+                if content_data:
+                    # Ensure content_data is a string before parsing JSON
+                    if isinstance(content_data, bytes):
+                        content_data = content_data.decode('utf-8')
+                    elif not isinstance(content_data, str):
+                        content_data = str(content_data)
+                    content = json.loads(content_data)
+                    
+                    # Apply days filter if specified
+                    if days > 0 and "modified_date" in content:
+                        try:
+                            modified_date = datetime.fromisoformat(content["modified_date"])
+                            age_threshold = current_time - timedelta(days=days)
+                            if modified_date < age_threshold:
+                                continue  # Skip old content
+                        except (ValueError, TypeError):
+                            # If date parsing fails, include the content
+                            pass
+                    
+                    result.append({"url": url, "text": content.get("text", "")})
+
+            logger.info(
+                f"Loaded {len(result)} contents for {len(urls)} URLs (within {days} days) from Redis"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"Error loading contents from Redis: {e}")
+            raise
+
+    def save_contents(
+        self,
+        contents: List[dict],
+        collection: Optional[str] = None,
+        days: int = 0,
+    ) -> None:
+        """Save document contents to Redis.
+
+        Args:
+            contents: List of dictionaries containing document contents
+            collection: Not used in Redis implementation (for API compatibility)
+            days: Only update contents older than this many days (0 for always update)
+        """
+        if not contents:
+            logger.warning("Empty contents list provided to save_contents")
+            return
+
+        try:
+            pipe = self.client.pipeline()
+            updated_count = 0
+            skipped_count = 0
+            current_time = datetime.now()
+            
+            for doc in contents:
+                if "url" not in doc or "text" not in doc:
+                    logger.warning(f"Skipping document with missing required fields: {doc}")
+                    continue
+
+                key = self._get_content_key(doc["url"])
+                
+                # Check if we should update based on days parameter
+                should_update = True
+                if days > 0:
+                    existing_data = self.client.get(key)
+                    if existing_data:
+                        try:
+                            # Ensure existing_data is a string before parsing JSON
+                            if isinstance(existing_data, bytes):
+                                existing_data = existing_data.decode('utf-8')
+                            elif not isinstance(existing_data, str):
+                                existing_data = str(existing_data)
+                            existing_content = json.loads(existing_data)
+                            if "modified_date" in existing_content:
+                                modified_date = datetime.fromisoformat(existing_content["modified_date"])
+                                age_threshold = current_time - timedelta(days=days)
+                                if modified_date > age_threshold:
+                                    should_update = False
+                                    skipped_count += 1
+                                    logger.info(
+                                        f"Skipping update for {doc['url']} (not older than {days} days)"
+                                    )
+                        except (ValueError, TypeError, json.JSONDecodeError):
+                            # If parsing fails, allow update
+                            pass
+
+                if should_update:
+                    content_data = {
+                        "text": doc["text"],
+                        "modified_date": current_time.isoformat(),
+                        "company_name": self.company_name,
+                        "lang": self.lang,
+                        "url": doc["url"]
+                    }
+                    pipe.set(key, json.dumps(content_data))
+                    updated_count += 1
+
+            pipe.execute()
+            logger.info(
+                f"Saved {updated_count} contents, skipped {skipped_count} (not older than {days} days)"
+            )
+
+        except Exception as e:
+            logger.error(f"Error saving contents to Redis: {e}")
+            raise
+
+    def load_tags(
+        self,
+        urls: List[str],
+        method: str,
+        llm_name: str,
+        collection: Optional[str] = None,
+        days: int = 0,
+    ) -> List[dict]:
+        """Load document tags from Redis.
+
+        Args:
+            urls: List of URLs to load tags for
+            method: Tagging method used
+            llm_name: Name of the LLM used for tagging
+            collection: Not used in Redis implementation (for API compatibility)
+            days: Number of days to look back for data (0 for all)
+
+        Returns:
+            List of dictionaries containing document tags
+        """
+        if not urls:
+            logger.warning("Empty URLs list provided to load_tags")
+            return []
+
+        try:
+            result = []
+            current_time = datetime.now()
+            
+            for url in urls:
+                key = self._get_tag_key(url, method, llm_name)
+                tag_data = self.client.get(key)
+                if tag_data:
+                    # Ensure tag_data is a string before parsing JSON
+                    if isinstance(tag_data, bytes):
+                        tag_data = tag_data.decode('utf-8')
+                    elif not isinstance(tag_data, str):
+                        tag_data = str(tag_data)
+                    tag = json.loads(tag_data)
+                    
+                    # Apply days filter if specified
+                    if days > 0 and "modified_date" in tag:
+                        try:
+                            modified_date = datetime.fromisoformat(tag["modified_date"])
+                            age_threshold = current_time - timedelta(days=days)
+                            if modified_date < age_threshold:
+                                continue  # Skip old tags
+                        except (ValueError, TypeError):
+                            # If date parsing fails, include the tag
+                            pass
+                    
+                    result.append({
+                        "url": url,
+                        "crime_type": tag.get("crime_type", ""),
+                        "probability": tag.get("probability", 0.0),
+                        "description": tag.get("description", "")
+                    })
+
+            logger.info(
+                f"Loaded {len(result)} tags for {len(urls)} URLs (within {days} days) from Redis"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"Error loading tags from Redis: {e}")
+            raise
+
+    def save_tags(
+        self,
+        tags: List[dict],
+        method: str,
+        llm_name: str,
+        collection: Optional[str] = None,
+        days: int = 0,
+    ) -> None:
+        """Save document tags to Redis.
+
+        Args:
+            tags: List of dictionaries containing document tags
+            method: Tagging method used
+            llm_name: Name of the LLM used for tagging
+            collection: Not used in Redis implementation (for API compatibility)
+            days: Only update tags older than this many days (0 for always update)
+        """
+        if not tags:
+            logger.warning("Empty tags list provided to save_tags")
+            return
+
+        try:
+            pipe = self.client.pipeline()
+            updated_count = 0
+            skipped_count = 0
+            current_time = datetime.now()
+            
+            for item in tags:
+                required_fields = ["url", "crime_type", "probability"]
+                if not all(field in item for field in required_fields):
+                    logger.warning(f"Skipping item with missing required fields: {item}")
+                    continue
+
+                key = self._get_tag_key(item["url"], method, llm_name)
+                
+                # Check if we should update based on days parameter
+                should_update = True
+                if days > 0:
+                    existing_data = self.client.get(key)
+                    if existing_data:
+                        try:
+                            # Ensure existing_data is a string before parsing JSON
+                            if isinstance(existing_data, bytes):
+                                existing_data = existing_data.decode('utf-8')
+                            elif not isinstance(existing_data, str):
+                                existing_data = str(existing_data)
+                            existing_tag = json.loads(existing_data)
+                            if "modified_date" in existing_tag:
+                                modified_date = datetime.fromisoformat(existing_tag["modified_date"])
+                                age_threshold = current_time - timedelta(days=days)
+                                if modified_date > age_threshold:
+                                    should_update = False
+                                    skipped_count += 1
+                                    logger.info(
+                                        f"Skipping update for {item['url']} (not older than {days} days)"
+                                    )
+                        except (ValueError, TypeError, json.JSONDecodeError):
+                            # If parsing fails, allow update
+                            pass
+
+                if should_update:
+                    tag_data = {
+                        "crime_type": item["crime_type"],
+                        "probability": item["probability"],
+                        "description": item.get("description", "N/A"),
+                        "modified_date": current_time.isoformat(),
+                        "company_name": self.company_name,
+                        "lang": self.lang,
+                        "method": method,
+                        "llm_name": llm_name,
+                        "url": item["url"]
+                    }
+                    pipe.set(key, json.dumps(tag_data))
+                    updated_count += 1
+
+            pipe.execute()
+            logger.info(f"Saved {updated_count} tags, skipped {skipped_count} (not older than {days} days)")
+
+        except Exception as e:
+            logger.error(f"Error saving tags to Redis: {e}")
+            raise
+
+    def close(self) -> None:
+        """Close the Redis database connection."""
+        try:
+            if self._owns_client:
+                self.client.close()
+                logger.info("Redis connection closed")
+            else:
+                logger.info("Redis connection managed externally")
+        except Exception as e:
+            logger.error(f"Error closing Redis connection: {e}")
 
     def __enter__(self):
         """Context manager entry point."""

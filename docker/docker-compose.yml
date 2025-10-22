@@ -12,6 +12,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8280
       - MONGO_URI=mongodb://mongodb:27017
+      - REDIS_URL=redis://redis:6379
     volumes:
       - ../config/ssl/cert.pem:/app/cert.pem:ro
       - ../config/ssl/key.pem:/app/key.pem:ro
@@ -19,6 +20,8 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       mongodb:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -43,8 +46,24 @@ services:
       timeout: 10s
       retries: 3
 
+  redis:
+    image: redis:7-alpine
+    env_file:
+      - ../.env
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: redis-server --appendonly yes
+
 volumes:
   mongodb_data:
+    driver: local
+  redis_data:
     driver: local
 
 networks:
