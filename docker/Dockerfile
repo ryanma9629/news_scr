@@ -16,8 +16,6 @@ RUN apt-get update && apt-get install -y \
     g++ \
     build-essential \
     curl \
-    libpq-dev \
-    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching

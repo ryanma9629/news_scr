@@ -16,8 +16,7 @@ news_scr/
 │   ├── __init__.py
 │   ├── main.py                  # FastAPI server (main entry point)
 │   ├── crawler.py               # Web crawling functionality
-│   ├── doc_store.py             # MongoDB document storage
-│   ├── postgres_store.py        # PostgreSQL tagging storage
+│   ├── doc_store.py             # MongoDB/Redis document storage
 │   ├── query.py                 # Q&A with context
 │   ├── summarization.py         # Document summarization
 │   ├── tagging.py               # FC tagging for crime classification
@@ -33,9 +32,6 @@ news_scr/
 ├── config/                      # Configuration files
 │   ├── mongodb/
 │   │   └── init-db.js          # MongoDB initialization script
-│   ├── postgresql/
-│   │   ├── init-db.sql         # PostgreSQL table setup
-│   │   └── README.md           # PostgreSQL setup guide
 │   └── ssl/
 │       ├── cert.pem            # SSL certificate
 │       ├── key.pem             # SSL private key
@@ -123,7 +119,7 @@ python -m app.main
 - **Summarization**: Generate summaries of news articles
 - **Q&A**: Ask questions about the content using RAG
 - **Multi-LLM Support**: Azure OpenAI, DeepSeek, Qwen/Tongyi
-- **Dual Storage**: MongoDB for content and metadata, PostgreSQL for tagging results
+- **Dual Storage**: MongoDB for content and metadata, Redis for caching
 - **Session Management**: Browser-based sessions for data persistence
 
 ## Configuration
@@ -150,48 +146,13 @@ GOOGLE_SERPER_API_KEY=your_serper_key
 # MongoDB
 MONGO_URI=mongodb://localhost:27017
 
-# PostgreSQL (for tagging results)
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=adverse_news_screening
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_secure_password
+# Redis (optional)
+REDIS_URL=redis://localhost:6379
 
 # Server
 HOST=0.0.0.0
 PORT=8280
 ```
-
-### PostgreSQL Setup
-
-The application automatically saves all tagging results to PostgreSQL for persistence and analysis. PostgreSQL configuration is optional for MongoDB-only deployments.
-
-#### Quick Setup:
-
-1. **Install PostgreSQL:**
-   ```bash
-   # Ubuntu/Debian
-   sudo apt install postgresql postgresql-contrib
-   
-   # Docker
-   docker run --name postgres-adverse-news -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres:15
-   ```
-
-2. **Create database and user:**
-   ```bash
-   sudo -u postgres psql
-   CREATE DATABASE adverse_news_screening;
-   CREATE USER news_app WITH PASSWORD 'your_secure_password';
-   GRANT ALL PRIVILEGES ON DATABASE adverse_news_screening TO news_app;
-   \q
-   ```
-
-3. **Initialize tables:**
-   ```bash
-   psql -U news_app -d adverse_news_screening -f config/postgresql/init-db.sql
-   ```
-
-For detailed setup instructions, see [config/postgresql/README.md](config/postgresql/README.md).
 
 ### SSL Configuration
 

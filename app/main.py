@@ -30,7 +30,6 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .crawler import ApifyCrawler, CrawlerType
 from .doc_store import MongoStore, RedisStore, _mongo_manager
-from .postgres_store import PostgreSQLTagStore
 from .query import QAWithContext
 from .summarization import (
     SUMMARY_LEVELS,
@@ -38,7 +37,7 @@ from .summarization import (
     RefinementSummarization,
 )
 from .tagging import FCTagging
-from .websearch import BingSearch, GoogleSerperNews
+from .websearch import BingSearch, BraveSearch, GoogleSerperNews, TavilySearch
 
 # Load environment variables
 load_dotenv()
@@ -203,7 +202,7 @@ class SearchRequest(BaseModel):
     )
     lang: str = Field(..., description="Language code (e.g., 'zh-CN', 'en-US')")
     search_suffix: str = Field(..., description="Search topic suffix")
-    search_engine: str = Field(..., description="Search engine ('Google' or 'Bing')")
+    search_engine: str = Field(..., description="Search engine ('Google', 'Bing', 'Brave', or 'Tavily')")
     num_results: int = Field(
         ..., ge=1, le=100, description="Number of results to return"
     )
@@ -647,10 +646,15 @@ def get_search_keywords(company_name: str, search_suffix: str, lang: str) -> str
 def get_search_engine(engine_name: str, lang: str):
     """Get search engine instance based on engine name and language."""
     display_lang = LANGUAGE_DISPLAY_MAP.get(lang, "English")
-    if engine_name.lower() == "google":
+    engine_name_lower = engine_name.lower()
+    if engine_name_lower == "google":
         return GoogleSerperNews(lang=display_lang)
-    elif engine_name.lower() == "bing":
+    elif engine_name_lower == "bing":
         return BingSearch(lang=display_lang)
+    elif engine_name_lower == "brave":
+        return BraveSearch(lang=display_lang)
+    elif engine_name_lower == "tavily":
+        return TavilySearch(lang=display_lang)
     return None
 
 
@@ -1291,55 +1295,6 @@ async def tag_news_content(request: TaggingRequest):
                         llm_name=request.llm_model,
                         days=request.tags_save_days,
                     )
-
-        # Save ALL results to PostgreSQL when VI_DEPLOY is enabled
-        if VI_DEPLOY:
-            # Get URL to title mapping from session
-            url_title_mapping = get_url_title_mapping(session_id or "")
-
-            all_results_for_postgres = []
-            for tag in tags_from_db:
-                tag_with_title = {
-                    "url": tag["url"],
-                    "title": url_title_mapping.get(tag["url"]),
-                    "crime_type": tag.get("crime_type"),
-                    "probability": tag.get("probability"),
-                    "description": tag.get("description"),
-                    "method": request.tagging_method,
-                }
-                all_results_for_postgres.append(tag_with_title)
-
-            if "tagged_results" in locals():
-                for tag in tagged_results:
-                    tag_with_title = {
-                        "url": tag["url"],
-                        "title": url_title_mapping.get(tag["url"]),
-                        "crime_type": tag.get("crime_type"),
-                        "probability": tag.get("probability"),
-                        "description": tag.get("description"),
-                        "method": tag["method"],
-                    }
-                    all_results_for_postgres.append(tag_with_title)
-
-            if all_results_for_postgres:
-                try:
-                    postgres_store = PostgreSQLTagStore()
-
-                    effective_customer_id = (
-                        request.customer_id if request.customer_id else "default"
-                    )
-
-                    postgres_store.save_tags(
-                        all_results_for_postgres,
-                        company_name=request.company_name,
-                        lang=request.lang,
-                        method=request.tagging_method,
-                        llm_name=request.llm_model,
-                        days=request.tags_save_days,
-                        customer_id=effective_customer_id,
-                    )
-                except Exception as postgres_error:
-                    logger.error(f"Failed to save tags to PostgreSQL: {postgres_error}")
 
         success_count = sum(1 for r in results if r.success)
         return TaggingResponse(
