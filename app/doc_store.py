@@ -295,6 +295,7 @@ class MongoStore(DocStore):
 
     This class provides document storage functionality using MongoDB,
     with support for content management and tag storage operations.
+    Uses connection pooling via MongoConnectionManager for thread safety.
     """
 
     def __init__(
@@ -309,20 +310,16 @@ class MongoStore(DocStore):
         Args:
             company_name: Name of the company
             lang: Language code
-            client: Optional MongoDB client instance (deprecated - use connection manager)
+            client: Optional MongoDB client instance (uses connection manager if None)
             db: Database name to use
         """
         super().__init__(company_name, lang)
 
-        # Use provided client or get from connection manager (thread-safe singleton)
-        if client:
-            self.client = client
-            self._owns_client = True  # We own this client and can close it
-            logger.warning("Using provided MongoDB client - connection pooling not available")
-        else:
-            self.client = _mongo_manager.get_client()
-            self._owns_client = False  # Connection manager owns the client
-            
+        # Use connection manager for pooled connections (recommended)
+        # or provided client for custom configurations
+        self.client = client or _mongo_manager.get_client()
+        self._uses_connection_manager = client is None
+
         # Use provided db name or get from environment variable
         self.db = db or os.getenv("MONGO_DB", "adverse_news_screening")
         logger.info(
@@ -682,21 +679,22 @@ class MongoStore(DocStore):
 
     def close(self) -> None:
         """Close the MongoDB database connection.
-        
-        Note: When using the connection manager, individual close calls do not
-        close the shared connection pool. Use MongoConnectionManager.close() 
+
+        Note: When using the connection manager (default), individual close calls
+        do not close the shared connection pool. Use MongoConnectionManager.close()
         to close the global connection pool when shutting down the application.
+        Only closes connections that were explicitly provided to the constructor.
 
         Raises:
             Exception: If error occurs while closing connection
         """
         try:
-            # Only close if we own the client (not using connection manager)
-            if self._owns_client:
+            # Only close if we have our own client (not from connection manager)
+            if not self._uses_connection_manager:
                 self.client.close()
-                logger.info("Individual database connection closed")
+                logger.info("Database connection closed")
             else:
-                logger.info("Database connection managed by connection pool")
+                logger.debug("Connection managed by connection pool - not closing")
         except Exception as e:
             logger.error(f"Error closing database connection: {e}")
 
@@ -736,14 +734,15 @@ class RedisStore(DocStore):
         """
         super().__init__(company_name, lang)
 
+        # Use provided client or create from URL
         if redis_client:
             self.client = redis_client
-            self._owns_client = False
+            self._uses_external_client = True
         else:
             redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
             self.client = redis.from_url(redis_url, decode_responses=True)
-            self._owns_client = True
-            
+            self._uses_external_client = False
+
         logger.info(
             f"RedisStore initialized for company: {company_name}, lang: {lang}"
         )
@@ -1058,13 +1057,17 @@ class RedisStore(DocStore):
             raise
 
     def close(self) -> None:
-        """Close the Redis database connection."""
+        """Close the Redis database connection.
+
+        Note: Only closes connections that were created internally (not provided).
+        External clients are managed by their creators.
+        """
         try:
-            if self._owns_client:
+            if not self._uses_external_client:
                 self.client.close()
                 logger.info("Redis connection closed")
             else:
-                logger.info("Redis connection managed externally")
+                logger.debug("Redis connection managed externally - not closing")
         except Exception as e:
             logger.error(f"Error closing Redis connection: {e}")
 

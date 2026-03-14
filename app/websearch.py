@@ -22,6 +22,7 @@ import httpx
 from dotenv import load_dotenv
 from langchain_community.utilities.google_serper import GoogleSerperAPIWrapper
 
+from .config import TAVILY_SEARCH_URL, TAVILY_DEFAULT_TIMEOUT, get_tavily_api_key
 from .logging_config import get_logger
 
 # Initialize logger using shared configuration
@@ -225,8 +226,6 @@ class TavilySearch(WebSearch):
     Note: Tavily does not support explicit language or location filtering.
     """
 
-    TAVILY_SEARCH_URL = "https://api.tavily.com/search"
-
     def __init__(self, lang: str, location: Optional[str] = None) -> None:
         """
         Initialize Tavily search.
@@ -280,15 +279,13 @@ class TavilySearch(WebSearch):
         try:
             self._validate_inputs(keywords, max_results)
 
-            tavily_key = os.getenv("TAVILY_API_KEY")
-            if not tavily_key:
-                raise ValueError("TAVILY_API_KEY environment variable not set")
+            tavily_key = get_tavily_api_key()
 
             logger.info(f"Searching Tavily with keywords: {keywords}")
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=TAVILY_DEFAULT_TIMEOUT) as client:
                 response = await client.post(
-                    self.TAVILY_SEARCH_URL,
+                    TAVILY_SEARCH_URL,
                     json={
                         "query": keywords,
                         "max_results": max_results,
@@ -323,9 +320,6 @@ class TavilySearch(WebSearch):
                 logger.warning("No results found from Tavily")
                 return None
 
-        except ValueError as e:
-            logger.error(f"Tavily search configuration error: {str(e)}")
-            return None
         except httpx.HTTPStatusError as e:
             logger.error(f"Tavily API error: {e.response.status_code} - {e.response.text}")
             return None

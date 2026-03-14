@@ -17,7 +17,6 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.vectorstores import VectorStore
-from langchain_chroma import Chroma
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
@@ -34,7 +33,7 @@ from .config import (
     MAX_DESCRIPTION_LENGTH,
 )
 from .logging_config import get_logger
-from .vector_store import get_company_chroma_store
+from .vector_store import get_company_chroma_store, setup_vector_store
 
 
 # Load environment variables
@@ -42,6 +41,18 @@ load_dotenv()
 
 # Initialize logger using shared configuration
 logger = get_logger(__name__)
+
+# Default tag values for error/edge cases
+DEFAULT_TAG_RESULT = {
+    "crime_type": DEFAULT_CRIME_TYPE,
+    "probability": DEFAULT_PROBABILITY,
+    "description": DEFAULT_DESCRIPTION,
+}
+
+
+def _get_default_tag_result() -> dict:
+    """Return a copy of the default tag result for error/edge cases."""
+    return DEFAULT_TAG_RESULT.copy()
 
 
 class FinancialCrime(BaseModel):
@@ -185,37 +196,21 @@ Passage:
         # Input validation
         if not doc or not doc.page_content or not doc.page_content.strip():
             logger.warning("Empty or invalid document content")
-            return {
-                "crime_type": DEFAULT_CRIME_TYPE,
-                "probability": DEFAULT_PROBABILITY,
-                "description": DEFAULT_DESCRIPTION,
-            }
+            return _get_default_tag_result()
 
         if len(doc.page_content.strip()) < MIN_CONTENT_LENGTH:
             logger.warning("Document content too short to analyze")
-            return {
-                "crime_type": DEFAULT_CRIME_TYPE,
-                "probability": DEFAULT_PROBABILITY,
-                "description": DEFAULT_DESCRIPTION,
-            }
+            return _get_default_tag_result()
 
         try:
             tag = await self.tagging_chain.ainvoke({"input": doc.page_content})
         except Exception as e:
             logger.error(f"Error tagging single document: {e}")
-            return {
-                "crime_type": DEFAULT_CRIME_TYPE,
-                "probability": DEFAULT_PROBABILITY,
-                "description": DEFAULT_DESCRIPTION,
-            }
+            return _get_default_tag_result()
 
         if not isinstance(tag, FinancialCrime):
             logger.error("LLM response is not a valid FinancialCrime instance")
-            return {
-                "crime_type": DEFAULT_CRIME_TYPE,
-                "probability": DEFAULT_PROBABILITY,
-                "description": DEFAULT_DESCRIPTION,
-            }
+            return _get_default_tag_result()
 
         return tag.model_dump(mode="json")
 
@@ -246,19 +241,13 @@ Passage:
             )
         except Exception as e:
             logger.error(f"Error tagging batch documents: {e}")
-            return [
-                {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY, "description": DEFAULT_DESCRIPTION}
-                for _ in docs
-            ]
+            return [_get_default_tag_result() for _ in docs]
 
         try:
             self._validate_tags(tags)
         except ValueError as e:
             logger.error(f"Tag validation failed: {e}")
-            return [
-                {"crime_type": DEFAULT_CRIME_TYPE, "probability": DEFAULT_PROBABILITY, "description": DEFAULT_DESCRIPTION}
-                for _ in docs
-            ]
+            return [_get_default_tag_result() for _ in docs]
 
         return [tag.model_dump(mode="json") for tag in tags]  # type: ignore
 
@@ -280,11 +269,7 @@ Passage:
         """
         if not docs:
             logger.warning("Empty document list provided to tagging_combine")
-            return {
-                "crime_type": DEFAULT_CRIME_TYPE,
-                "probability": DEFAULT_PROBABILITY,
-                "description": DEFAULT_DESCRIPTION,
-            }
+            return _get_default_tag_result()
 
         medium_proba_types = set()
         high_proba_types = set()
@@ -330,11 +315,7 @@ Passage:
                 "description": combined_description,
             }
         else:
-            return {
-                "crime_type": DEFAULT_CRIME_TYPE,
-                "probability": DEFAULT_PROBABILITY,
-                "description": DEFAULT_DESCRIPTION,
-            }
+            return _get_default_tag_result()
 
     async def tagging_rag(
         self,
@@ -368,44 +349,34 @@ Passage:
         if k is None:
             k = DEFAULT_K
 
-        if not docs and not vectordb:
-            raise ValueError("At least one of 'docs' or 'vectordb' must be provided.")
-
         tagging_query = """
 Is this company suspected of financial crimes? Such as money laundering,
 financial fraud, counterfeiting currency/financial instruments, illegal
 absorption of public deposits, illegal granting of loans, insider trading,
 manipulation of securities markets?
 """
-        if not vectordb:  # not provided, use persistent or temporary vector store
-            if company_name and lang:
-                # Use persistent Chroma store scoped to company
-                logger.info(f"Using persistent Chroma store for tagging: {company_name}, {lang}")
-                vectordb = get_company_chroma_store(company_name, lang, self.emb)
-                if docs:
-                    await vectordb.aadd_documents(docs)
-            elif not docs:
-                raise ValueError("docs cannot be None when vectordb is not provided and no company_name/lang")
-            else:
-                # Fallback to transient Chroma store
-                logger.info("Creating transient Chroma store for tagging")
-                vectordb = Chroma(embedding_function=self.emb)
-                await vectordb.aadd_documents(docs)
+        # Set up vector store using shared utility
+        vectordb, _ = await setup_vector_store(
+            docs=docs,
+            embedding_function=self.emb,
+            vectordb=vectordb,
+            company_name=company_name,
+            lang=lang,
+        )
 
-            retriever = vectordb.as_retriever(search_type="mmr", search_kwargs={"k": k})
-        else:
-            retriever = vectordb.as_retriever(
-                search_type="mmr", search_kwargs={"filter": filter, "k": k}
-            )
+        retriever = vectordb.as_retriever(
+            search_type="mmr",
+            search_kwargs={"filter": filter, "k": k} if filter else {"k": k}
+        )
 
         retrieved_docs = await retriever.ainvoke(tagging_query)
 
         if retrieved_docs:
             return await self.tagging_combine(retrieved_docs)
-        else:  # fallback
-            if not docs:
-                raise ValueError("docs cannot be None when fallback is needed")
+        elif docs:
             return await self.tagging_combine(docs)
+        else:
+            raise ValueError("No documents available for tagging")
 
     async def _generate_final_description(self, descriptions: List[str], crime_types: set, probability: str) -> Optional[str]:
         """

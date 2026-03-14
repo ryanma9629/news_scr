@@ -342,38 +342,31 @@ class GraphRAG:
         """
         entities = []
         relationships = []
-
-        in_entities = False
-        in_relationships = False
+        current_section = None
 
         for line in content.split("\n"):
             line = line.strip()
-            if line.startswith("ENTITIES:"):
-                in_entities = True
-                in_relationships = False
-                continue
-            elif line.startswith("RELATIONSHIPS:"):
-                in_entities = False
-                in_relationships = True
-                continue
-
-            if in_entities and line.startswith("-"):
-                match = _ENTITY_PATTERN.match(line)
-                if match:
-                    entities.append(Entity(
-                        name=match.group(1),
-                        entity_type=match.group(2),
-                        description=match.group(3)
-                    ))
-
-            elif in_relationships and line.startswith("-"):
-                match = _RELATIONSHIP_PATTERN.match(line)
-                if match:
-                    relationships.append(Relationship(
-                        source=match.group(1),
-                        relationship=match.group(2),
-                        target=match.group(3)
-                    ))
+            if line == "ENTITIES:":
+                current_section = "entities"
+            elif line == "RELATIONSHIPS:":
+                current_section = "relationships"
+            elif line.startswith("-"):
+                if current_section == "entities":
+                    match = _ENTITY_PATTERN.match(line)
+                    if match:
+                        entities.append(Entity(
+                            name=match.group(1),
+                            entity_type=match.group(2),
+                            description=match.group(3)
+                        ))
+                elif current_section == "relationships":
+                    match = _RELATIONSHIP_PATTERN.match(line)
+                    if match:
+                        relationships.append(Relationship(
+                            source=match.group(1),
+                            relationship=match.group(2),
+                            target=match.group(3)
+                        ))
 
         return entities, relationships
 

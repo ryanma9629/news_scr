@@ -9,11 +9,12 @@ __all__ = [
     "ChromaVectorStoreManager",
     "get_chroma_store",
     "get_company_chroma_store",
+    "setup_vector_store",
 ]
 
 import os
 import threading
-from typing import Optional
+from typing import List, Optional
 
 from dotenv import load_dotenv
 from langchain_core.embeddings import Embeddings
@@ -191,3 +192,48 @@ def get_company_chroma_store(
         Chroma vector store instance for the company
     """
     return _chroma_manager.get_company_store(company_name, lang, embedding_function)
+
+
+async def setup_vector_store(
+    docs: Optional[List],
+    embedding_function: Embeddings,
+    vectordb: Optional[Chroma] = None,
+    company_name: Optional[str] = None,
+    lang: Optional[str] = None,
+) -> tuple[Chroma, Optional[dict]]:
+    """
+    Set up a vector store for document retrieval.
+
+    This function handles the common pattern of creating or using a vector store
+    with optional company/language scoping for persistence.
+
+    Args:
+        docs: Optional list of documents to add to the vector store
+        embedding_function: Embedding function for the vector store
+        vectordb: Optional pre-existing vector store
+        company_name: Optional company name for persistent store scoping
+        lang: Optional language for persistent store scoping
+
+    Returns:
+        Tuple of (vectordb, filter_dict) where filter_dict is None if a new
+        vectordb was created, or {} if an existing one was provided
+
+    Raises:
+        ValueError: If neither docs nor vectordb are provided
+    """
+    if not docs and not vectordb:
+        raise ValueError("At least one of 'docs' or 'vectordb' must be provided.")
+
+    if not vectordb:
+        if company_name and lang:
+            logger.info(f"Using persistent Chroma store for company: {company_name}, lang: {lang}")
+            vectordb = get_company_chroma_store(company_name, lang, embedding_function)
+        else:
+            logger.info("Creating transient Chroma store")
+            vectordb = Chroma(embedding_function=embedding_function)
+
+        if docs:
+            await vectordb.aadd_documents(docs)
+        return vectordb, None
+
+    return vectordb, {}

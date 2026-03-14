@@ -5,7 +5,7 @@ This module provides all configuration constants used across the application,
 ensuring DRY (Don't Repeat Yourself) principles and easy configuration management.
 """
 
-from typing import Literal
+from typing import Literal, Optional
 
 __all__ = [
     # Chunking configuration
@@ -49,6 +49,12 @@ __all__ = [
     "TAVILY_BATCH_SIZE",
     # Type aliases
     "CrawlerType",
+    # Tavily API configuration
+    "TAVILY_API_KEY_ENV",
+    "TAVILY_SEARCH_URL",
+    "TAVILY_EXTRACT_URL",
+    "TAVILY_DEFAULT_TIMEOUT",
+    "get_tavily_api_key",
 ]
 
 # =============================================================================
@@ -180,3 +186,33 @@ TAVILY_BATCH_SIZE = 20
 # =============================================================================
 
 CrawlerType = Literal["cheerio", "playwright:chrome", "playwright:firefox", "playwright:adaptive", "tavily"]
+
+# =============================================================================
+# TAVILY API CONFIGURATION
+# =============================================================================
+
+TAVILY_API_KEY_ENV = "TAVILY_API_KEY"
+TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+TAVILY_EXTRACT_URL = "https://api.tavily.com/extract"
+TAVILY_DEFAULT_TIMEOUT = 30.0
+
+
+def get_tavily_api_key(api_key: Optional[str] = None) -> str:
+    """
+    Get Tavily API key from parameter or environment variable.
+
+    Args:
+        api_key: Optional API key to use directly
+
+    Returns:
+        The API key string
+
+    Raises:
+        ValueError: If no API key is available
+    """
+    import os
+
+    key = api_key or os.getenv(TAVILY_API_KEY_ENV)
+    if not key:
+        raise ValueError(f"{TAVILY_API_KEY_ENV} environment variable not set")
+    return key

@@ -18,7 +18,6 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.vectorstores import VectorStore
-from langchain_chroma import Chroma
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.checkpoint.memory import MemorySaver
@@ -35,7 +34,7 @@ from .config import (
     TECHNICAL_ERROR_MESSAGE,
 )
 from .logging_config import get_logger
-from .vector_store import get_company_chroma_store
+from .vector_store import get_company_chroma_store, setup_vector_store
 
 
 # Load environment variables
@@ -156,25 +155,13 @@ class QAWithContext(QA):
         Raises:
             ValueError: If both docs and vectordb are None
         """
-        if not docs and not vectordb:
-            raise ValueError("At least one of 'docs' or 'vectordb' must be provided.")
-
-        if not vectordb:
-            # Use persistent Chroma store if company_name and lang are provided
-            if company_name and lang:
-                logger.info(f"Using persistent Chroma store for company: {company_name}, lang: {lang}")
-                vectordb = get_company_chroma_store(company_name, lang, self.emb)
-                if docs:
-                    await vectordb.aadd_documents(docs)
-            else:
-                # Fallback to Chroma without scoping (transient)
-                logger.info("Creating transient Chroma store")
-                vectordb = Chroma(embedding_function=self.emb)
-                if docs:
-                    await vectordb.aadd_documents(docs)
-            return vectordb, None
-
-        return vectordb, {}
+        return await setup_vector_store(
+            docs=docs,
+            embedding_function=self.emb,
+            vectordb=vectordb,
+            company_name=company_name,
+            lang=lang,
+        )
 
     def _create_retrieve_function(
         self,

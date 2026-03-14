@@ -19,7 +19,7 @@ from langchain_apify import ApifyWrapper
 from langchain_core.documents import Document
 from tavily import TavilyClient
 
-from .config import CrawlerType, TAVILY_BATCH_SIZE
+from .config import CrawlerType, TAVILY_BATCH_SIZE, TAVILY_EXTRACT_URL, TAVILY_DEFAULT_TIMEOUT, get_tavily_api_key
 from .logging_config import get_logger
 
 # Initialize logger using shared configuration
@@ -150,8 +150,6 @@ class TavilyCrawler(Crawler):
     which is optimized for extracting clean content from web pages.
     """
 
-    TAVILY_EXTRACT_URL = "https://api.tavily.com/extract"
-
     def __init__(self, api_key: Optional[str] = None) -> None:
         """Initialize the Tavily crawler.
 
@@ -163,11 +161,7 @@ class TavilyCrawler(Crawler):
 
     def _get_api_key(self) -> str:
         """Get the Tavily API key."""
-        if self._api_key is None:
-            self._api_key = os.getenv("TAVILY_API_KEY")
-        if not self._api_key:
-            raise ValueError("TAVILY_API_KEY environment variable not set")
-        return self._api_key
+        return get_tavily_api_key(self._api_key)
 
     async def get(self, urls: List[str], **kwargs) -> List[Document]:
         """Retrieve documents from URLs using Tavily Extract API.
@@ -191,14 +185,14 @@ class TavilyCrawler(Crawler):
             # Tavily supports max 20 URLs per call, so batch if needed
             all_documents = []
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=TAVILY_DEFAULT_TIMEOUT * 2) as client:
                 for i in range(0, len(urls), TAVILY_BATCH_SIZE):
                     batch = urls[i : i + TAVILY_BATCH_SIZE]
                     logger.info(f"Processing batch {i // TAVILY_BATCH_SIZE + 1}: {len(batch)} URLs")
 
                     # Make async HTTP request to Tavily Extract API
                     response = await client.post(
-                        self.TAVILY_EXTRACT_URL,
+                        TAVILY_EXTRACT_URL,
                         json={
                             "urls": batch,
                             "extract_depth": "basic",
