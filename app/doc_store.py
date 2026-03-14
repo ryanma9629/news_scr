@@ -357,10 +357,12 @@ class MongoStore(DocStore):
             collection: MongoDB collection object
         """
         try:
-            # Compound index for content queries
+            # Unique compound index for multi-tenant content storage
+            # Same URL can exist for different companies/languages
             collection.create_index(
-                [("company_name_lower", 1), ("lang", 1), ("url", 1)],
-                name="company_lang_url_idx",
+                [("company_name_lower", 1), ("lang", 1), ("url_lower", 1)],
+                name="unique_company_lang_url_idx",
+                unique=True,
                 background=True,
             )
             # Index for date-based queries
