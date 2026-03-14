@@ -62,9 +62,9 @@
                             <div class="mb-3">
                                 <label for="search_suffix" class="form-label">Search Topic:</label>
                                 <select id="search_suffix" name="search_suffix" class="form-select">
-                                    <option value="everything">(Everything)</option>
-                                    <option value="negative">Negative News</option>
+                                    <option value="negative" selected>Negative News</option>
                                     <option value="crime">Criminal Suspect</option>
+                                    <option value="everything">(Everything)</option>
                                 </select>
                             </div>
 
@@ -74,7 +74,7 @@
                                         <label for="search_engine" class="form-label">Search Engine:</label>
                                         <select id="search_engine" name="search_engine" class="form-select">
                                             <option value="Google">Google</option>
-                                            <option value="Bing">Bing</option>
+                                            <option value="Tavily">Tavily</option>
                                         </select>
                                     </div>
                                 </div>
@@ -198,7 +198,8 @@
                                                             Crawler Type:
                                                         </label>
                                                         <select id="crawler_type" class="form-select">
-                                                            <option value="cheerio" selected>Raw HTTP client (fast)
+                                                            <option value="tavily" selected>Tavily Extract (fast, recommended)</option>
+                                                            <option value="cheerio">Raw HTTP client (fast)
                                                             </option>
                                                             <option value="playwright:adaptive">Adaptive
                                                                 switching</option>
@@ -209,6 +210,8 @@
                                                         </select>
                                                         <div class="form-text">
                                                             <small>
+                                                                <strong>Tavily Extract:</strong> Fast, AI-optimized
+                                                                content extraction (recommended for most use cases)<br>
                                                                 <strong>Raw HTTP client:</strong> High-performance
                                                                 crawling mode that uses raw HTTP requests<br>
                                                                 <strong>Adaptive:</strong> Automatically switches

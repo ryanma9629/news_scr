@@ -12,11 +12,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -28,7 +28,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field, SecretStr
 from starlette.middleware.sessions import SessionMiddleware
 
-from .crawler import ApifyCrawler, CrawlerType
+from .logging_config import get_logger, setup_logging
+from .crawler import ApifyCrawler, TavilyCrawler, CrawlerType
 from .doc_store import MongoStore, RedisStore, _mongo_manager
 from .query import QAWithContext
 from .summarization import (
@@ -37,20 +38,13 @@ from .summarization import (
     RefinementSummarization,
 )
 from .tagging import FCTagging
-from .websearch import BingSearch, BraveSearch, GoogleSerperNews, TavilySearch
+from .websearch import GoogleSerperNews, TavilySearch
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-# Initialize logger
-logger = logging.getLogger(__name__)
+# Initialize logger using shared configuration
+logger = get_logger(__name__)
 
 # =============================================================================
 # CONFIGURATION AND CONSTANTS
@@ -88,6 +82,18 @@ SUPPORTED_LLM_DEPLOYMENTS = {
     "qwen-plus": "qwen-plus",
     "qwen-turbo": "qwen-turbo",
 }
+
+# Supported models for each deployment
+SUPPORTED_MODELS = {
+    "gpt-4.1": ["gpt-4.1"],
+    "gpt-4o": ["gpt-4o"],
+    "gpt-4o-mini": ["gpt-4o-mini"],
+    "deepseek-chat": ["deepseek-chat"],
+    "qwen-max": ["qwen-max"],
+    "qwen-plus": ["qwen-plus"],
+    "qwen-turbo": ["qwen-turbo"],
+}
+
 DEFAULT_LLM_DEPLOYMENT = "gpt-4o"
 
 # Language and search configuration
@@ -202,7 +208,7 @@ class SearchRequest(BaseModel):
     )
     lang: str = Field(..., description="Language code (e.g., 'zh-CN', 'en-US')")
     search_suffix: str = Field(..., description="Search topic suffix")
-    search_engine: str = Field(..., description="Search engine ('Google', 'Bing', 'Brave', or 'Tavily')")
+    search_engine: str = Field(..., description="Search engine ('Google' or 'Tavily')")
     num_results: int = Field(
         ..., ge=1, le=100, description="Number of results to return"
     )
@@ -215,7 +221,7 @@ class SearchRequest(BaseModel):
 class CrawlerRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to crawl")
     crawler_type: CrawlerType = Field(
-        default="playwright:adaptive", description="Crawler type"
+        default="tavily", description="Crawler type"
     )
     company_name: str = Field(..., description="Company name for storage")
     customer_id: Optional[str] = Field(
@@ -373,8 +379,18 @@ class ContentManager:
     @staticmethod
     def get_from_session_with_validation(
         session_id: str, urls: List[str], operation_name: str
-    ):
-        """Get contents from session with comprehensive validation."""
+    ) -> Tuple[List[Dict[str, str]], List[str], Optional[str]]:
+        """Get contents from session with comprehensive validation.
+
+        Args:
+            session_id: Session identifier
+            urls: List of URLs to retrieve
+            operation_name: Name of the operation for error messages
+
+        Returns:
+            Tuple of (contents, missing_urls, error_message).
+            If successful, error_message is None.
+        """
         session_data = get_session_data(session_id)
         session_contents = session_data.get("web_contents", {})
         contents = []
@@ -398,7 +414,17 @@ class ContentManager:
     def load_with_fallback(
         doc_store, urls: List[str], session_id: str, days: int = 0
     ) -> Tuple[List[Dict[str, str]], List[str]]:
-        """Load contents from storage with session fallback."""
+        """Load contents from storage with session fallback.
+
+        Args:
+            doc_store: Document storage instance
+            urls: List of URLs to load
+            session_id: Session identifier
+            days: Number of days to look back for cached content
+
+        Returns:
+            Tuple of (contents, missing_urls)
+        """
         session_data = get_session_data(session_id)
         session_contents = session_data.get("web_contents", {})
         contents = []
@@ -449,6 +475,23 @@ class ValidationManager:
                 detail=f"Unsupported LLM model: {llm_model}. Supported models: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}",
             )
         return SUPPORTED_LLM_DEPLOYMENTS[llm_model]
+
+    @staticmethod
+    def validate_llm_deployment_safe(llm_model: str) -> Tuple[str, Optional[str]]:
+        """Validate LLM deployment and return (deployment, error_message) tuple.
+
+        This is a non-throwing version that returns error as string instead of
+        raising HTTPException, for consistent error handling across endpoints.
+
+        Args:
+            llm_model: The LLM model name to validate
+
+        Returns:
+            Tuple of (deployment_name, error_message). If valid, error_message is None.
+        """
+        if llm_model not in SUPPORTED_LLM_DEPLOYMENTS:
+            return "", f"Unsupported LLM model: {llm_model}. Supported models: {list(SUPPORTED_LLM_DEPLOYMENTS.keys())}"
+        return SUPPORTED_LLM_DEPLOYMENTS[llm_model], None
 
 
 class StorageManager:
@@ -607,9 +650,28 @@ def create_json_response_with_cookies(
 
 # Essential utility functions (restored)
 def init_llm_and_embeddings(deployment: str = "gpt-4o", model: str = "gpt-4o"):
-    """Initialize LLM and embeddings with common configuration."""
+    """Initialize LLM and embeddings with common configuration.
+
+    Args:
+        deployment: The deployment name for the LLM
+        model: The model name to use
+
+    Returns:
+        Tuple of (LLM instance, embeddings instance)
+
+    Raises:
+        ValueError: If deployment or model is not supported
+    """
     if deployment not in SUPPORTED_LLM_DEPLOYMENTS:
         raise ValueError(f"Unsupported LLM deployment: {deployment}")
+
+    # Validate model for the given deployment
+    valid_models = SUPPORTED_MODELS.get(deployment, [])
+    if model not in valid_models:
+        raise ValueError(
+            f"Unsupported model '{model}' for deployment '{deployment}'. "
+            f"Valid models: {valid_models}"
+        )
 
     if deployment.startswith("deepseek"):
         llm = ChatDeepSeek(model=deployment, temperature=0)
@@ -644,15 +706,19 @@ def get_search_keywords(company_name: str, search_suffix: str, lang: str) -> str
 
 
 def get_search_engine(engine_name: str, lang: str):
-    """Get search engine instance based on engine name and language."""
+    """Get search engine instance based on engine name and language.
+
+    Args:
+        engine_name: Name of the search engine ('Google' or 'Tavily')
+        lang: Language code for search results
+
+    Returns:
+        Search engine instance, or None if engine not supported
+    """
     display_lang = LANGUAGE_DISPLAY_MAP.get(lang, "English")
     engine_name_lower = engine_name.lower()
     if engine_name_lower == "google":
         return GoogleSerperNews(lang=display_lang)
-    elif engine_name_lower == "bing":
-        return BingSearch(lang=display_lang)
-    elif engine_name_lower == "brave":
-        return BraveSearch(lang=display_lang)
     elif engine_name_lower == "tavily":
         return TavilySearch(lang=display_lang)
     return None
@@ -664,17 +730,49 @@ def validate_llm_deployment(llm_model: str) -> str:
     return ValidationManager.validate_llm_deployment(llm_model)
 
 
+def validate_llm_deployment_safe(llm_model: str) -> Tuple[str, Optional[str]]:
+    """Validate LLM deployment and return (deployment, error_message) tuple.
+
+    This is a non-throwing version for consistent error handling across endpoints.
+
+    Args:
+        llm_model: The LLM model name to validate
+
+    Returns:
+        Tuple of (deployment_name, error_message). If valid, error_message is None.
+    """
+    return ValidationManager.validate_llm_deployment_safe(llm_model)
+
+
 def validate_session_and_urls(
     session_id: Optional[str], urls: List[str], operation_name: str
-):
-    """Centralized validation for session ID and URLs."""
+) -> Tuple[bool, str]:
+    """Centralized validation for session ID and URLs.
+
+    Args:
+        session_id: Session identifier
+        urls: List of URLs to validate
+        operation_name: Name of the operation for error messages
+
+    Returns:
+        Tuple of (is_valid, error_message). If valid, error_message is empty string.
+    """
     return ValidationManager.validate_session_and_urls(session_id, urls, operation_name)
 
 
 def get_contents_from_session_with_validation(
     session_id: str, urls: List[str], operation_name: str
-):
-    """Get contents from session with comprehensive validation."""
+) -> Tuple[List[Dict[str, str]], List[str], Optional[str]]:
+    """Get contents from session with comprehensive validation.
+
+    Args:
+        session_id: Session identifier
+        urls: List of URLs to retrieve
+        operation_name: Name of the operation for error messages
+
+    Returns:
+        Tuple of (contents, missing_urls, error_message).
+    """
     return ContentManager.get_from_session_with_validation(
         session_id, urls, operation_name
     )
@@ -683,12 +781,32 @@ def get_contents_from_session_with_validation(
 def load_from_storage_with_fallback(
     doc_store, urls: List[str], session_id: str, days: int = 0
 ) -> Tuple[List[Dict[str, str]], List[str]]:
-    """Load contents from storage with session fallback."""
+    """Load contents from storage with session fallback.
+
+    Args:
+        doc_store: Document storage instance
+        urls: List of URLs to load
+        session_id: Session identifier
+        days: Number of days to look back for cached content
+
+    Returns:
+        Tuple of (contents, missing_urls)
+    """
     return ContentManager.load_with_fallback(doc_store, urls, session_id, days)
 
 
 def handle_storage_operation(operation_func, operation_name: str, *args, **kwargs):
-    """Generic handler for storage operations with error handling."""
+    """Generic handler for storage operations with error handling.
+
+    Args:
+        operation_func: The storage operation function to call
+        operation_name: Description of the operation for logging
+        *args: Positional arguments to pass to the operation
+        **kwargs: Keyword arguments to pass to the operation
+
+    Returns:
+        Result of the operation, or None if an error occurred
+    """
     return StorageManager.handle_operation(
         operation_func, operation_name, *args, **kwargs
     )
@@ -714,8 +832,20 @@ def get_fallback_port(preferred_port: int) -> int:
         return s.getsockname()[1]
 
 
-def get_doc_store(storage_type: str, company_name: str, lang: str):
-    """Get appropriate document store based on storage type."""
+def get_doc_store(storage_type: str, company_name: str, lang: str) -> Union[MongoStore, RedisStore]:
+    """Get appropriate document store based on storage type.
+
+    Args:
+        storage_type: Storage type ('redis' or 'mongo')
+        company_name: Company name for storage namespace
+        lang: Language code for storage namespace
+
+    Returns:
+        Document store instance (MongoStore or RedisStore)
+
+    Raises:
+        ValueError: If storage_type is not supported
+    """
     storage_type = storage_type.lower()
     if storage_type == "redis":
         return RedisStore(company_name=company_name, lang=lang)
@@ -723,6 +853,59 @@ def get_doc_store(storage_type: str, company_name: str, lang: str):
         return MongoStore(company_name=company_name, lang=lang)
     else:
         raise ValueError(f"Unsupported storage type: {storage_type}. Supported types: 'redis', 'mongo'")
+
+
+class StorageFactory:
+    """Factory class for creating document storage instances with caching."""
+
+    _instances = {}
+
+    @classmethod
+    def get_doc_store(
+        cls, storage_type: str, company_name: str, lang: str
+    ) -> Union[MongoStore, RedisStore]:
+        """Get or create a document store instance.
+
+        Uses caching to avoid creating multiple instances for the same parameters.
+
+        Args:
+            storage_type: Storage type ('redis' or 'mongo')
+            company_name: Company name for storage namespace
+            lang: Language code for storage namespace
+
+        Returns:
+            Document store instance (MongoStore or RedisStore)
+        """
+        cache_key = (storage_type.lower(), company_name, lang)
+        if cache_key not in cls._instances:
+            cls._instances[cache_key] = get_doc_store(
+                storage_type, company_name, lang
+            )
+        return cls._instances[cache_key]
+
+    @classmethod
+    def clear_cache(cls):
+        """Clear the instance cache."""
+        cls._instances.clear()
+
+
+def create_doc_store_dependency(
+    storage_type: str, company_name: str, lang: str
+) -> Union[MongoStore, RedisStore]:
+    """Dependency function for document store injection.
+
+    This function is designed to be used with FastAPI's dependency injection
+    system. It wraps the StorageFactory for easy testing and configuration.
+
+    Args:
+        storage_type: Storage type ('redis' or 'mongo')
+        company_name: Company name for storage namespace
+        lang: Language code for storage namespace
+
+    Returns:
+        Document store instance (MongoStore or RedisStore)
+    """
+    return StorageFactory.get_doc_store(storage_type, company_name, lang)
 
 
 # =============================================================================
@@ -733,6 +916,8 @@ def get_doc_store(storage_type: str, company_name: str, lang: str):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management."""
+    # Initialize centralized logging configuration
+    setup_logging(force=True)
     session_manager.cleanup_expired_sessions()
     yield
     try:
@@ -895,14 +1080,14 @@ async def search_news(http_request: Request, request: SearchRequest):
         user_agent = http_request.headers.get("user-agent", "")
         session_id = request.session_id or generate_session_id(client_ip, user_agent)
 
-        try:
-            validate_llm_deployment(request.llm_model)
-        except HTTPException as e:
+        # Use safe validation for consistent error handling
+        deployment, validation_error = validate_llm_deployment_safe(request.llm_model)
+        if validation_error:
             return SearchResponse(
                 success=False,
                 results=[],
                 total_results=0,
-                message=str(e.detail),
+                message=validation_error,
                 session_id=session_id,
             )
 
@@ -1060,11 +1245,15 @@ async def crawl_news_content(request: CrawlerRequest):
         crawled_contents = []
         if urls_to_crawl:
             try:
-                # Use Apify crawler only
-                crawler = ApifyCrawler()
-                documents = await crawler.get(
-                    urls_to_crawl, crawler_type=request.crawler_type
-                )
+                # Select crawler based on type
+                if request.crawler_type == "tavily":
+                    crawler = TavilyCrawler()
+                    documents = await crawler.get(urls_to_crawl)
+                else:
+                    crawler = ApifyCrawler()
+                    documents = await crawler.get(
+                        urls_to_crawl, crawler_type=request.crawler_type
+                    )
 
                 url_to_doc = {
                     doc.metadata.get("source", ""): doc
@@ -1154,11 +1343,11 @@ async def tag_news_content(request: TaggingRequest):
     try:
         session_id = request.session_id
 
-        try:
-            deployment = validate_llm_deployment(request.llm_model)
-        except HTTPException as e:
+        # Use safe validation for consistent error handling
+        deployment, validation_error = validate_llm_deployment_safe(request.llm_model)
+        if validation_error:
             return TaggingResponse(
-                success=False, results=[], total_results=0, message=str(e.detail)
+                success=False, results=[], total_results=0, message=validation_error
             )
 
         is_valid, validation_error = validate_session_and_urls(
@@ -1333,10 +1522,10 @@ async def summarize_news_content(request: SummaryRequest):
     try:
         session_id = request.session_id
 
-        try:
-            deployment = validate_llm_deployment(request.llm_model)
-        except HTTPException as e:
-            return SummaryResponse(success=False, message=str(e.detail), summary=None)
+        # Use safe validation for consistent error handling
+        deployment, validation_error = validate_llm_deployment_safe(request.llm_model)
+        if validation_error:
+            return SummaryResponse(success=False, message=validation_error, summary=None)
 
         valid_levels = list(SUMMARY_LEVELS.keys())
         if request.summary_level not in valid_levels:
@@ -1415,12 +1604,12 @@ async def qa_endpoint(request: QARequest):
     try:
         session_id = request.session_id
 
-        try:
-            deployment = validate_llm_deployment(request.llm_model)
-        except HTTPException as e:
+        # Use safe validation for consistent error handling
+        deployment, validation_error = validate_llm_deployment_safe(request.llm_model)
+        if validation_error:
             return QAResponse(
                 success=False,
-                message=str(e.detail),
+                message=validation_error,
                 question=request.question,
                 answer=None,
                 urls=[],

@@ -6,30 +6,26 @@ functionality using various crawlers like Apify for document retrieval.
 """
 
 import asyncio
-import logging
+import os
 import sys
 from abc import ABC, abstractmethod
-from typing import List, Optional, Literal
+from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
 from langchain_apify import ApifyWrapper
 from langchain_core.documents import Document
+from tavily import TavilyClient
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+from .logging_config import get_logger
 
-# Initialize logger
-logger = logging.getLogger(__name__)
+# Initialize logger using shared configuration
+logger = get_logger(__name__)
 
 # Load environment variables
 load_dotenv()
 
 # Type alias for crawler types
-CrawlerType = Literal["cheerio", "playwright:chrome", "playwright:firefox", "playwright:adaptive"]
+CrawlerType = Literal["cheerio", "playwright:chrome", "playwright:firefox", "playwright:adaptive", "tavily"]
 
 
 class Crawler(ABC):
@@ -45,11 +41,12 @@ class Crawler(ABC):
         super().__init__()
 
     @abstractmethod
-    async def get(self, urls: List[str]) -> List[Document]:
+    async def get(self, urls: List[str], **kwargs) -> List[Document]:
         """Retrieve documents from the given URLs.
 
         Args:
             urls: List of URLs to crawl
+            **kwargs: Implementation-specific parameters
 
         Returns:
             List of Document objects containing the crawled content
@@ -143,6 +140,100 @@ class ApifyCrawler(Crawler):
             logger.error(f"Apify API call failed with crawler type '{crawler_type}': {str(e)}")
             raise
 
+
+class TavilyCrawler(Crawler):
+    """
+    Crawler implementation using Tavily Extract API for content extraction.
+
+    This class provides fast document retrieval using Tavily's Extract API,
+    which is optimized for extracting clean content from web pages.
+    """
+
+    def __init__(self, client: Optional[TavilyClient] = None) -> None:
+        """Initialize the Tavily crawler with optional client.
+
+        Args:
+            client: Optional TavilyClient instance. If None, a new client is created
+                    using the TAVILY_API_KEY environment variable.
+        """
+        super().__init__()
+        self._client = client
+
+    def _get_client(self) -> TavilyClient:
+        """Get or create the Tavily client."""
+        if self._client is None:
+            tavily_key = os.getenv("TAVILY_API_KEY")
+            if not tavily_key:
+                raise ValueError("TAVILY_API_KEY environment variable not set")
+            self._client = TavilyClient(api_key=tavily_key)
+        return self._client
+
+    async def get(self, urls: List[str], **kwargs) -> List[Document]:
+        """Retrieve documents from URLs using Tavily Extract API.
+
+        Args:
+            urls: List of URLs to crawl
+            **kwargs: Additional parameters (ignored for Tavily)
+
+        Returns:
+            List of Document objects containing the extracted content
+
+        Raises:
+            ValueError: If TAVILY_API_KEY is not set
+            Exception: If the Tavily API call fails
+        """
+        client = self._get_client()
+
+        try:
+            logger.info(f"Starting Tavily Extract for {len(urls)} URLs")
+
+            # Tavily supports max 20 URLs per call, so batch if needed
+            all_documents = []
+            batch_size = 20
+
+            for i in range(0, len(urls), batch_size):
+                batch = urls[i : i + batch_size]
+                logger.info(f"Processing batch {i // batch_size + 1}: {len(batch)} URLs")
+
+                # Run sync Tavily call in thread pool for async compatibility
+                response = await asyncio.to_thread(
+                    client.extract,
+                    urls=batch,
+                    extract_depth="basic",
+                    format="markdown",
+                )
+
+                # Process successful results
+                for result in response.get("results", []):
+                    url = result.get("url", "")
+                    content = result.get("raw_content", "")
+                    if url and content:
+                        all_documents.append(
+                            Document(
+                                page_content=content,
+                                metadata={"source": url},
+                            )
+                        )
+
+                # Log failed results but don't fail the entire request
+                failed = response.get("failed_results", [])
+                for fail in failed:
+                    logger.warning(
+                        f"Failed to extract from {fail.get('url', 'unknown')}: "
+                        f"{fail.get('error', 'Unknown error')}"
+                    )
+
+            logger.info(
+                f"Tavily Extract completed: {len(all_documents)} documents from {len(urls)} URLs"
+            )
+            return all_documents
+
+        except ValueError as e:
+            logger.error(f"Tavily configuration error: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Tavily Extract API call failed: {str(e)}")
+            raise
 
 
 if __name__ == "__main__":

@@ -113,7 +113,7 @@ python -m app.main
 
 ## Features
 
-- **Web Search**: Search for news articles using Google or Bing
+- **Web Search**: Search for news articles using Google or Tavily
 - **Content Crawling**: Extract content from news URLs
 - **FC Tagging**: Classify content for crime types using LLMs
 - **Summarization**: Generate summaries of news articles
@@ -140,8 +140,8 @@ DEEPSEEK_API_KEY=your_deepseek_key
 DASHSCOPE_API_KEY=your_dashscope_key
 
 # Search APIs (optional)
-BING_SUBSCRIPTION_KEY=your_bing_key
 GOOGLE_SERPER_API_KEY=your_serper_key
+TAVILY_API_KEY=your_tavily_key
 
 # MongoDB
 MONGO_URI=mongodb://localhost:27017
