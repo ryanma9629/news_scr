@@ -6,7 +6,6 @@ summarization functionality using Map-Reduce and refinement approaches.
 """
 
 import asyncio
-import logging
 import operator
 import sys
 from abc import ABC, abstractmethod
@@ -26,19 +25,14 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
+from .logging_config import get_logger
+
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-# Initialize logger
-logger = logging.getLogger(__name__)
+# Initialize logger using shared configuration
+logger = get_logger(__name__)
 
 
 # Type definitions for Map-Reduce summarization

@@ -1,10 +1,11 @@
 """
 Document storage implementations using MongoDB.
 
-This module (doc_store.py) provides abstract and concrete implementations for 
+This module (doc_store.py) provides abstract and concrete implementations for
 document storage functionality, including content and tag management with MongoDB backend.
 """
 
+import json
 import logging
 import os
 import re
@@ -14,42 +15,33 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import List, Optional
 
+import redis
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
-import redis
-import json
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+from .logging_config import get_logger
 
-# Initialize logger
-logger = logging.getLogger(__name__)
+# Initialize logger using shared configuration
+logger = get_logger(__name__)
 
 
 class MongoConnectionManager:
     """Singleton MongoDB connection manager with connection pooling for thread safety."""
-    
+
     _instance = None
     _lock = threading.Lock()
-    
+
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
+                    instance = super().__new__(cls)
+                    instance._client = None
+                    instance._uri = None
+                    instance._initialized = True
+                    cls._instance = instance
         return cls._instance
-    
-    def __init__(self):
-        if not self._initialized:
-            self._client = None
-            self._uri = None
-            self._initialized = True
-    
+
     def get_client(self, uri: Optional[str] = None) -> MongoClient:
         """Get or create MongoDB client with connection pooling.
         
@@ -701,25 +693,34 @@ class RedisStore(DocStore):
             return
 
         try:
-            pipe = self.client.pipeline()
+            current_time = datetime.now()
             updated_count = 0
             skipped_count = 0
-            current_time = datetime.now()
-            
-            for doc in contents:
-                if "url" not in doc or "text" not in doc:
-                    logger.warning(f"Skipping document with missing required fields: {doc}")
-                    continue
 
-                key = self._get_content_key(doc["url"])
-                
-                # Check if we should update based on days parameter
-                should_update = True
-                if days > 0:
-                    existing_data = self.client.get(key)
+            # Filter valid documents
+            valid_docs = [
+                doc for doc in contents
+                if "url" in doc and "text" in doc
+            ]
+            if len(valid_docs) < len(contents):
+                logger.warning(f"Skipped {len(contents) - len(valid_docs)} documents with missing required fields")
+
+            if not valid_docs:
+                return
+
+            # Batch fetch existing data if days filtering is needed
+            existing_data_map = {}
+            if days > 0:
+                check_pipe = self.client.pipeline()
+                keys_to_check = [self._get_content_key(doc["url"]) for doc in valid_docs]
+                for key in keys_to_check:
+                    check_pipe.get(key)
+                existing_results = check_pipe.execute()
+
+                age_threshold = current_time - timedelta(days=days)
+                for doc, key, existing_data in zip(valid_docs, keys_to_check, existing_results):
                     if existing_data:
                         try:
-                            # Ensure existing_data is a string before parsing JSON
                             if isinstance(existing_data, bytes):
                                 existing_data = existing_data.decode('utf-8')
                             elif not isinstance(existing_data, str):
@@ -727,18 +728,20 @@ class RedisStore(DocStore):
                             existing_content = json.loads(existing_data)
                             if "modified_date" in existing_content:
                                 modified_date = datetime.fromisoformat(existing_content["modified_date"])
-                                age_threshold = current_time - timedelta(days=days)
                                 if modified_date > age_threshold:
-                                    should_update = False
+                                    existing_data_map[doc["url"]] = True
                                     skipped_count += 1
                                     logger.info(
                                         f"Skipping update for {doc['url']} (not older than {days} days)"
                                     )
                         except (ValueError, TypeError, json.JSONDecodeError):
-                            # If parsing fails, allow update
                             pass
 
-                if should_update:
+            # Build and execute save pipeline
+            pipe = self.client.pipeline()
+            for doc in valid_docs:
+                if doc["url"] not in existing_data_map:
+                    key = self._get_content_key(doc["url"])
                     content_data = {
                         "text": doc["text"],
                         "modified_date": current_time.isoformat(),
@@ -846,26 +849,35 @@ class RedisStore(DocStore):
             return
 
         try:
-            pipe = self.client.pipeline()
+            current_time = datetime.now()
             updated_count = 0
             skipped_count = 0
-            current_time = datetime.now()
-            
-            for item in tags:
-                required_fields = ["url", "crime_type", "probability"]
-                if not all(field in item for field in required_fields):
-                    logger.warning(f"Skipping item with missing required fields: {item}")
-                    continue
 
-                key = self._get_tag_key(item["url"], method, llm_name)
-                
-                # Check if we should update based on days parameter
-                should_update = True
-                if days > 0:
-                    existing_data = self.client.get(key)
+            # Filter valid tags
+            required_fields = ["url", "crime_type", "probability"]
+            valid_tags = [
+                item for item in tags
+                if all(field in item for field in required_fields)
+            ]
+            if len(valid_tags) < len(tags):
+                logger.warning(f"Skipped {len(tags) - len(valid_tags)} items with missing required fields")
+
+            if not valid_tags:
+                return
+
+            # Batch fetch existing data if days filtering is needed
+            existing_data_map = {}
+            if days > 0:
+                check_pipe = self.client.pipeline()
+                keys_to_check = [self._get_tag_key(item["url"], method, llm_name) for item in valid_tags]
+                for key in keys_to_check:
+                    check_pipe.get(key)
+                existing_results = check_pipe.execute()
+
+                age_threshold = current_time - timedelta(days=days)
+                for item, key, existing_data in zip(valid_tags, keys_to_check, existing_results):
                     if existing_data:
                         try:
-                            # Ensure existing_data is a string before parsing JSON
                             if isinstance(existing_data, bytes):
                                 existing_data = existing_data.decode('utf-8')
                             elif not isinstance(existing_data, str):
@@ -873,18 +885,20 @@ class RedisStore(DocStore):
                             existing_tag = json.loads(existing_data)
                             if "modified_date" in existing_tag:
                                 modified_date = datetime.fromisoformat(existing_tag["modified_date"])
-                                age_threshold = current_time - timedelta(days=days)
                                 if modified_date > age_threshold:
-                                    should_update = False
+                                    existing_data_map[item["url"]] = True
                                     skipped_count += 1
                                     logger.info(
                                         f"Skipping update for {item['url']} (not older than {days} days)"
                                     )
                         except (ValueError, TypeError, json.JSONDecodeError):
-                            # If parsing fails, allow update
                             pass
 
-                if should_update:
+            # Build and execute save pipeline
+            pipe = self.client.pipeline()
+            for item in valid_tags:
+                if item["url"] not in existing_data_map:
+                    key = self._get_tag_key(item["url"], method, llm_name)
                     tag_data = {
                         "crime_type": item["crime_type"],
                         "probability": item["probability"],

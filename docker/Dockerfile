@@ -10,6 +10,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Configure pip to use Tsinghua mirror for faster downloads
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip config set install.trusted-host pypi.tuna.tsinghua.edu.cn
+
+# Install netselect-apt and select fastest Debian mirror
+RUN apt-get update && apt-get install -y netselect-apt && \
+    # Remove old sources to avoid conflicts (modern Debian uses DEB822 format)
+    rm -f /etc/apt/sources.list.d/*.sources /etc/apt/sources.list && \
+    netselect-apt --tests 10 --outfile /etc/apt/sources.list && \
+    apt-get purge -y netselect-apt && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \

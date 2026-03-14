@@ -6,7 +6,6 @@ functionality using language models with document retrieval capabilities.
 """
 
 import asyncio
-import logging
 import sys
 from abc import ABC, abstractmethod
 from typing import List, Optional, TypedDict
@@ -21,19 +20,14 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import START, StateGraph
 
+from .logging_config import get_logger
+
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-# Initialize logger
-logger = logging.getLogger(__name__)
+# Initialize logger using shared configuration
+logger = get_logger(__name__)
 
 # Configuration constants
 DEFAULT_RETRIEVAL_COUNT = 3
@@ -194,11 +188,11 @@ class QAWithContext(QA):
                     )
                 else:
                     # Fallback to sync version in thread pool
-                    retrieved_docs = await asyncio.get_event_loop().run_in_executor(
-                        None,
-                        lambda: vectordb.max_marginal_relevance_search(
-                            state["question"], k=k, filter=filter_dict
-                        ),
+                    retrieved_docs = await asyncio.to_thread(
+                        vectordb.max_marginal_relevance_search,
+                        state["question"],
+                        k=k,
+                        filter=filter_dict
                     )
                 
                 # Extract unique URLs from document metadata
@@ -257,9 +251,7 @@ class QAWithContext(QA):
                     response = await self.llm.ainvoke(messages)
                 else:
                     # Fallback to sync version in thread pool
-                    response = await asyncio.get_event_loop().run_in_executor(
-                        None, self.llm.invoke, messages
-                    )
+                    response = await asyncio.to_thread(self.llm.invoke, messages)
 
                 logger.info("Successfully generated response")
                 return {"answer": response.content}

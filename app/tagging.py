@@ -6,7 +6,6 @@ financial crimes using language models and vector search capabilities.
 """
 
 import asyncio
-import logging
 import sys
 from typing import List, Literal, Optional
 
@@ -20,19 +19,14 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
+from .logging_config import get_logger
+
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-# Initialize logger
-logger = logging.getLogger(__name__)
+# Initialize logger using shared configuration
+logger = get_logger(__name__)
 
 # Configuration constants
 DEFAULT_MAX_CONCURRENCY = 3
