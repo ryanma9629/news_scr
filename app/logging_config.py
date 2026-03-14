@@ -6,6 +6,8 @@ at application startup. All other modules should use logging.getLogger(__name__)
 to obtain a logger instance.
 """
 
+__all__ = ["setup_logging", "get_logger"]
+
 import logging
 from typing import Optional
 

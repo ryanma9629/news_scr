@@ -5,6 +5,8 @@ This module provides functionality to analyze documents and identify potential
 financial crimes using language models and vector search capabilities.
 """
 
+__all__ = ["FinancialCrime", "FCTagging"]
+
 import asyncio
 import sys
 from typing import List, Literal, Optional
@@ -14,12 +16,25 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.vectorstores import InMemoryVectorStore, VectorStore
+from langchain_core.vectorstores import VectorStore
+from langchain_chroma import Chroma
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
+from .config import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_CHUNK_OVERLAP,
+    DEFAULT_MAX_CONCURRENCY,
+    DEFAULT_K,
+    MIN_CONTENT_LENGTH,
+    DEFAULT_CRIME_TYPE,
+    DEFAULT_PROBABILITY,
+    DEFAULT_DESCRIPTION,
+    MAX_DESCRIPTION_LENGTH,
+)
 from .logging_config import get_logger
+from .vector_store import get_company_chroma_store
 
 
 # Load environment variables
@@ -27,16 +42,6 @@ load_dotenv()
 
 # Initialize logger using shared configuration
 logger = get_logger(__name__)
-
-# Configuration constants
-DEFAULT_MAX_CONCURRENCY = 3
-DEFAULT_K = 3
-MIN_CONTENT_LENGTH = 10
-DEFAULT_CRIME_TYPE = "Not suspected"
-DEFAULT_PROBABILITY = "low"
-DEFAULT_DESCRIPTION = None
-DEFAULT_CHUNK_SIZE = 2000
-DEFAULT_CHUNK_OVERLAP = 100
 
 
 class FinancialCrime(BaseModel):
@@ -337,6 +342,8 @@ Passage:
         vectordb: Optional[VectorStore] = None,
         filter: Optional[dict] = None,
         k: Optional[int] = None,
+        company_name: Optional[str] = None,
+        lang: Optional[str] = None,
     ) -> dict:
         """
         Perform financial crime tagging using Retrieval-Augmented Generation (RAG).
@@ -349,6 +356,8 @@ Passage:
             vectordb: Optional pre-existing vector store to search from
             filter: Optional filter to apply during vector search
             k: Number of documents to retrieve (defaults to DEFAULT_K)
+            company_name: Optional company name for persistent vector store scoping
+            lang: Optional language for persistent vector store scoping
 
         Returns:
             Dictionary containing crime_type, probability, and description assessment
@@ -368,11 +377,21 @@ financial fraud, counterfeiting currency/financial instruments, illegal
 absorption of public deposits, illegal granting of loans, insider trading,
 manipulation of securities markets?
 """
-        if not vectordb:  # not provided, use a temporary in-memory vector db
-            if not docs:
-                raise ValueError("docs cannot be None when vectordb is not provided")
-            vectordb = InMemoryVectorStore(self.emb)
-            await vectordb.aadd_documents(docs)
+        if not vectordb:  # not provided, use persistent or temporary vector store
+            if company_name and lang:
+                # Use persistent Chroma store scoped to company
+                logger.info(f"Using persistent Chroma store for tagging: {company_name}, {lang}")
+                vectordb = get_company_chroma_store(company_name, lang, self.emb)
+                if docs:
+                    await vectordb.aadd_documents(docs)
+            elif not docs:
+                raise ValueError("docs cannot be None when vectordb is not provided and no company_name/lang")
+            else:
+                # Fallback to transient Chroma store
+                logger.info("Creating transient Chroma store for tagging")
+                vectordb = Chroma(embedding_function=self.emb)
+                await vectordb.aadd_documents(docs)
+
             retriever = vectordb.as_retriever(search_type="mmr", search_kwargs={"k": k})
         else:
             retriever = vectordb.as_retriever(
@@ -431,7 +450,7 @@ Provide a brief, consolidated explanation that captures the key evidence:
                 final_description = str(response).strip()
             
             # Ensure it's not too long (limit to roughly 2 sentences)
-            if len(final_description) > 200:
+            if len(final_description) > MAX_DESCRIPTION_LENGTH:
                 # Take first two sentences approximately
                 sentences = final_description.split('. ')
                 if len(sentences) >= 2:

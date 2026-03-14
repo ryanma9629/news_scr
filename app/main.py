@@ -18,18 +18,30 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_community.chat_models.tongyi import ChatTongyi
 from langchain_core.documents import Document
 from langchain_deepseek import ChatDeepSeek
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from starlette.middleware.sessions import SessionMiddleware
 
+from .config import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_CHUNK_OVERLAP,
+    DEFAULT_SESSION_TIMEOUT_HOURS,
+    DEFAULT_STORAGE_DAYS,
+    SUPPORTED_LLM_DEPLOYMENTS,
+    SUPPORTED_MODELS,
+    DEFAULT_LLM_DEPLOYMENT,
+    LANGUAGE_DISPLAY_MAP,
+    SEARCH_SUFFIX_MAP,
+    CrawlerType,
+)
 from .logging_config import get_logger, setup_logging
-from .crawler import ApifyCrawler, TavilyCrawler, CrawlerType
+from .crawler import ApifyCrawler, TavilyCrawler
 from .doc_store import MongoStore, RedisStore, _mongo_manager
 from .query import QAWithContext
 from .summarization import (
@@ -38,7 +50,9 @@ from .summarization import (
     RefinementSummarization,
 )
 from .tagging import FCTagging
+from .vector_store import get_company_chroma_store
 from .websearch import GoogleSerperNews, TavilySearch
+from .graph_rag import GraphRAG
 
 # Load environment variables
 load_dotenv()
@@ -49,12 +63,6 @@ logger = get_logger(__name__)
 # =============================================================================
 # CONFIGURATION AND CONSTANTS
 # =============================================================================
-
-# Default configuration
-DEFAULT_CHUNK_SIZE = 2000
-DEFAULT_CHUNK_OVERLAP = 100
-DEFAULT_SESSION_TIMEOUT_HOURS = 2
-DEFAULT_STORAGE_DAYS = 90
 
 # Deployment configuration
 VI_DEPLOY = os.getenv("VI_DEPLOY", "false").lower() == "true"
@@ -71,57 +79,6 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"
 COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", "")
 SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", "86400"))
 SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", secrets.token_urlsafe(32))
-
-# LLM configuration
-SUPPORTED_LLM_DEPLOYMENTS = {
-    "gpt-4.1": "gpt-4.1",
-    "gpt-4o": "gpt-4o",
-    "gpt-4o-mini": "gpt-4o-mini",
-    "deepseek-chat": "deepseek-chat",
-    "qwen-max": "qwen-max",
-    "qwen-plus": "qwen-plus",
-    "qwen-turbo": "qwen-turbo",
-}
-
-# Supported models for each deployment
-SUPPORTED_MODELS = {
-    "gpt-4.1": ["gpt-4.1"],
-    "gpt-4o": ["gpt-4o"],
-    "gpt-4o-mini": ["gpt-4o-mini"],
-    "deepseek-chat": ["deepseek-chat"],
-    "qwen-max": ["qwen-max"],
-    "qwen-plus": ["qwen-plus"],
-    "qwen-turbo": ["qwen-turbo"],
-}
-
-DEFAULT_LLM_DEPLOYMENT = "gpt-4o"
-
-# Language and search configuration
-LANGUAGE_DISPLAY_MAP = {
-    "zh-CN": "Simplified Chinese",
-    "zh-HK": "Traditional Chinese(HK)",
-    "zh-TW": "Traditional Chinese(TW)",
-    "en-US": "English",
-    "ja-JP": "Japanese",
-}
-
-SEARCH_SUFFIX_MAP = {
-    "negative": {
-        "zh-CN": "负面新闻",
-        "zh-HK": "負面新聞",
-        "zh-TW": "負面新聞",
-        "en-US": "negative news",
-        "ja-JP": "ネガティブニュース",
-    },
-    "crime": {
-        "zh-CN": "犯罪嫌疑",
-        "zh-HK": "犯罪嫌疑",
-        "zh-TW": "犯罪嫌疑",
-        "en-US": "criminal suspect",
-        "ja-JP": "犯罪容疑",
-    },
-    "everything": {"zh-CN": "", "zh-HK": "", "zh-TW": "", "en-US": "", "ja-JP": ""},
-}
 
 # =============================================================================
 # SESSION MANAGEMENT
@@ -202,6 +159,13 @@ session_manager = ThreadSafeSessionManager()
 
 # Request models
 class SearchRequest(BaseModel):
+    """Request model for news search endpoint."""
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_default=True,
+    )
+
     company_name: str = Field(..., description="Company name to search for")
     customer_id: Optional[str] = Field(
         None, description="Customer identifier for multi-tenant support"
@@ -219,6 +183,13 @@ class SearchRequest(BaseModel):
 
 
 class CrawlerRequest(BaseModel):
+    """Request model for content crawling endpoint."""
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_default=True,
+    )
+
     urls: List[str] = Field(..., description="List of URLs to crawl")
     crawler_type: CrawlerType = Field(
         default="tavily", description="Crawler type"
@@ -247,6 +218,12 @@ class CrawlerRequest(BaseModel):
 
 
 class TaggingRequest(BaseModel):
+    """Request model for financial crime tagging endpoint."""
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_default=True,
+    )
     urls: List[str] = Field(..., description="List of URLs to tag")
     company_name: str = Field(..., description="Company name for storage")
     customer_id: Optional[str] = Field(
@@ -276,6 +253,12 @@ class TaggingRequest(BaseModel):
 
 
 class SummaryRequest(BaseModel):
+    """Request model for summarization endpoint."""
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_default=True,
+    )
     urls: List[str] = Field(..., description="List of URLs to summarize")
     company_name: str = Field(..., description="Company name for storage")
     customer_id: Optional[str] = Field(
@@ -297,6 +280,12 @@ class SummaryRequest(BaseModel):
 
 
 class QARequest(BaseModel):
+    """Request model for Q&A endpoint."""
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_default=True,
+    )
     question: str = Field(..., description="Question to ask")
     company_name: str = Field(..., description="Company name for context")
     customer_id: Optional[str] = Field(
@@ -307,6 +296,9 @@ class QARequest(BaseModel):
     llm_model: str = Field(default="gpt-4o-mini", description="LLM model to use")
     session_id: Optional[str] = Field(
         None, description="Session ID for data persistence"
+    )
+    thread_id: Optional[str] = Field(
+        None, description="Thread ID for conversation continuity"
     )
 
 
@@ -1104,7 +1096,7 @@ async def search_news(http_request: Request, request: SearchRequest):
 
         # Perform search with better error handling
         try:
-            results = search_engine.search(keywords, request.num_results)
+            results = await search_engine.asearch(keywords, request.num_results)
         except Exception as search_error:
             # This is definitely an API/network error
             logger.error(f"Search engine error: {search_error}")
@@ -1596,6 +1588,106 @@ async def summarize_news_content(request: SummaryRequest):
         )
 
 
+@app.post("/api/summary/stream")
+@require_session(strict=False)
+async def summarize_news_content_stream(request: SummaryRequest):
+    """Perform summarization on news content with streaming progress updates."""
+    import json
+
+    def format_event(event_type: str, data: dict) -> str:
+        return f"event: {event_type}\n" f"data: {json.dumps(data)}\n\n"
+
+    async def generate_stream():
+        try:
+            session_id = request.session_id
+
+            # Send initial status
+            yield format_event("status", {"message": "Initializing summarization..."})
+
+            deployment, validation_error = validate_llm_deployment_safe(request.llm_model)
+            if validation_error:
+                yield format_event("error", {"message": validation_error})
+                return
+
+            valid_levels = list(SUMMARY_LEVELS.keys())
+            if request.summary_level not in valid_levels:
+                yield format_event("error", {
+                    "message": f"Invalid summary level '{request.summary_level}'. Valid options: {', '.join(valid_levels)}"
+                })
+                return
+
+            if not session_id:
+                yield format_event("error", {
+                    "message": "Session is required. Please search for news and get content first."
+                })
+                return
+
+            if not request.urls:
+                yield format_event("error", {"message": "No URLs provided for summarization"})
+                return
+
+            # Send progress update
+            yield format_event("status", {"message": "Loading content from session..."})
+
+            contents, missing_urls, error_msg = get_contents_from_session_with_validation(
+                session_id, request.urls, "summarization"
+            )
+            if error_msg:
+                yield format_event("error", {"message": error_msg})
+                return
+
+            # Send progress update
+            yield format_event("status", {
+                "message": f"Preparing {len(contents)} documents for summarization..."
+            })
+
+            llm, emb = init_llm_and_embeddings(deployment, request.llm_model)
+            docs = [
+                Document(page_content=content["text"], metadata={"url": content["url"]})
+                for content in contents
+                if content.get("text")
+            ]
+            num_clusters = request.num_clusters if request.cluster_docs else 0
+
+            # Send progress update
+            method_name = "Map-Reduce" if request.summary_method == "map-reduce" else "Refinement"
+            yield format_event("status", {
+                "message": f"Running {method_name} summarization on {len(docs)} documents..."
+            })
+
+            if request.summary_method == "map-reduce":
+                summarizer = MapReduceSummarization(llm, emb)
+            else:
+                summarizer = RefinementSummarization(llm, emb)
+
+            summary = await summarizer.summarize(
+                docs=docs,
+                lang=request.lang,
+                summary_level=request.summary_level,
+                num_cluster=num_clusters,
+            )
+
+            # Send final result
+            yield format_event("complete", {
+                "success": True,
+                "message": f"Summary generated successfully, processed {len(contents)} articles",
+                "summary": summary
+            })
+
+        except Exception as e:
+            logger.error(f"Streaming summary error: {e}")
+            yield format_event("error", {"message": f"System error: {str(e)}"})
+
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+
 @app.post("/api/qa", response_model=QAResponse)
 @require_session(strict=False)
 @handle_api_errors(QAResponse)
@@ -1661,7 +1753,10 @@ async def qa_endpoint(request: QARequest):
         split_docs = text_splitter.split_documents(documents)
         qa_system = QAWithContext(llm=llm, emb=embeddings)
         result = await qa_system.query(
-            query=request.question, lang=request.lang, docs=split_docs
+            query=request.question,
+            lang=request.lang,
+            docs=split_docs,
+            thread_id=request.thread_id,
         )
 
         return QAResponse(
@@ -1681,6 +1776,201 @@ async def qa_endpoint(request: QARequest):
             answer=None,
             urls=[],
         )
+
+
+@app.post("/api/qa/graph", response_model=QAResponse)
+@require_session(strict=False)
+@handle_api_errors(QAResponse)
+async def qa_graph_endpoint(request: QARequest):
+    """Process QA request using GraphRAG for enhanced entity understanding."""
+    try:
+        session_id = request.session_id
+
+        # Use safe validation for consistent error handling
+        deployment, validation_error = validate_llm_deployment_safe(request.llm_model)
+        if validation_error:
+            return QAResponse(
+                success=False,
+                message=validation_error,
+                question=request.question,
+                answer=None,
+                urls=[],
+            )
+
+        is_valid, validation_error = validate_session_and_urls(
+            session_id, request.urls, "Graph Q&A"
+        )
+        if not is_valid:
+            return QAResponse(
+                success=False,
+                message=validation_error or "Validation failed",
+                question=request.question,
+                answer=None,
+                urls=[],
+            )
+
+        contents, missing_urls, error_msg = get_contents_from_session_with_validation(
+            session_id or "", request.urls, "Graph Q&A"
+        )
+        if error_msg:
+            return QAResponse(
+                success=False,
+                message=error_msg,
+                question=request.question,
+                answer=None,
+                urls=[],
+            )
+
+        llm, embeddings = init_llm_and_embeddings(deployment, request.llm_model)
+        documents = [
+            Document(page_content=content["text"], metadata={"url": content["url"]})
+            for content in contents
+            if content.get("text")
+        ]
+
+        if not documents:
+            return QAResponse(
+                success=False,
+                message="No valid document content found for answering the question",
+                question=request.question,
+                answer=None,
+                urls=[],
+            )
+
+        # Use GraphRAG for enhanced QA
+        graph_rag = GraphRAG(llm=llm, emb=embeddings)
+        result = await graph_rag.answer_with_graph(
+            query=request.question,
+            docs=documents,
+            lang=request.lang,
+            company_name=request.company_name,
+            thread_id=request.thread_id,
+        )
+
+        return QAResponse(
+            success=True,
+            message="GraphRAG Q&A processing successful",
+            question=request.question,
+            answer=result.get("answer"),
+            urls=request.urls,
+        )
+
+    except Exception as e:
+        logger.error(f"Error in GraphRAG QA processing: {str(e)}")
+        return QAResponse(
+            success=False,
+            message=f"GraphRAG Q&A processing failed: {str(e)}",
+            question=request.question,
+            answer=None,
+            urls=[],
+        )
+
+
+@app.post("/api/qa/stream")
+@require_session(strict=False)
+async def qa_stream_endpoint(request: QARequest):
+    """Process QA request with streaming response."""
+    import json
+
+    def format_event(event_type: str, data: dict) -> str:
+        return f"event: {event_type}\n" f"data: {json.dumps(data)}\n\n"
+
+    async def generate_stream():
+        try:
+            session_id = request.session_id
+
+            yield format_event("status", {"message": "Initializing Q&A..."})
+
+            deployment, validation_error = validate_llm_deployment_safe(request.llm_model)
+            if validation_error:
+                yield format_event("error", {"message": validation_error})
+                return
+
+            is_valid, validation_error = validate_session_and_urls(
+                session_id, request.urls, "Q&A"
+            )
+            if not is_valid:
+                yield format_event("error", {"message": validation_error or "Validation failed"})
+                return
+
+            yield format_event("status", {"message": "Loading content from session..."})
+
+            contents, missing_urls, error_msg = get_contents_from_session_with_validation(
+                session_id or "", request.urls, "Q&A"
+            )
+            if error_msg:
+                yield format_event("error", {"message": error_msg})
+                return
+
+            llm, embeddings = init_llm_and_embeddings(deployment, request.llm_model)
+            documents = [
+                Document(page_content=content["text"], metadata={"url": content["url"]})
+                for content in contents
+                if content.get("text")
+            ]
+
+            if not documents:
+                yield format_event("error", {"message": "No valid document content found"})
+                return
+
+            yield format_event("status", {
+                "message": f"Processing {len(documents)} documents..."
+            })
+
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=DEFAULT_CHUNK_SIZE, chunk_overlap=DEFAULT_CHUNK_OVERLAP
+            )
+            split_docs = text_splitter.split_documents(documents)
+
+            yield format_event("status", {
+                "message": f"Running RAG on {len(split_docs)} chunks..."
+            })
+
+            qa_system = QAWithContext(llm=llm, emb=embeddings)
+
+            # Use native LangGraph streaming
+            async for event in qa_system.query_stream(
+                query=request.question,
+                lang=request.lang,
+                docs=split_docs,
+                company_name=request.company_name,
+                thread_id=request.thread_id,
+            ):
+                event_type = event.get("event", "update")
+                event_data = event.get("data", {})
+
+                if event_type == "update":
+                    # Stream node updates from LangGraph
+                    for node_name, node_output in event_data.items():
+                        if node_name == "retrieve":
+                            yield format_event("retrieve", {
+                                "message": f"Retrieved {len(node_output.get('context', []))} documents",
+                                "urls": node_output.get("urls", []),
+                            })
+                        elif node_name == "generate":
+                            answer = node_output.get("answer", "")
+                            yield format_event("complete", {
+                                "success": True,
+                                "message": "Q&A processing successful",
+                                "question": request.question,
+                                "answer": answer,
+                                "urls": [],
+                            })
+                elif event_type == "error":
+                    yield format_event("error", event_data)
+
+        except Exception as e:
+            logger.error(f"Error in streaming QA processing: {str(e)}")
+            yield format_event("error", {"message": f"Q&A processing failed: {str(e)}"})
+
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 @app.get("/api/health")

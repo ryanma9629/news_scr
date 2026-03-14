@@ -5,22 +5,37 @@ This module provides abstract and concrete implementations for question-answerin
 functionality using language models with document retrieval capabilities.
 """
 
+__all__ = ["QA", "QAWithContext", "QAState"]
+
 import asyncio
 import sys
 from abc import ABC, abstractmethod
-from typing import List, Optional, TypedDict
+from typing import AsyncGenerator, List, Optional, TypedDict
 
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.vectorstores import InMemoryVectorStore, VectorStore
+from langchain_core.vectorstores import VectorStore
+from langchain_chroma import Chroma
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langgraph.graph import START, StateGraph
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import START, END, StateGraph
 
+from .config import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_CHUNK_OVERLAP,
+    DEFAULT_RETRIEVAL_COUNT,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_DOC_SEPARATOR,
+    NO_CONTEXT_MESSAGE,
+    GENERATION_ERROR_MESSAGE,
+    TECHNICAL_ERROR_MESSAGE,
+)
 from .logging_config import get_logger
+from .vector_store import get_company_chroma_store
 
 
 # Load environment variables
@@ -28,20 +43,6 @@ load_dotenv()
 
 # Initialize logger using shared configuration
 logger = get_logger(__name__)
-
-# Configuration constants
-DEFAULT_RETRIEVAL_COUNT = 3
-DEFAULT_CHUNK_SIZE = 2000
-DEFAULT_CHUNK_OVERLAP = 100
-DEFAULT_TEMPERATURE = 0.0
-DEFAULT_DOC_SEPARATOR = "\n\n"
-
-# Error messages
-NO_CONTEXT_MESSAGE = "I don't have enough information to answer this question."
-GENERATION_ERROR_MESSAGE = "I'm unable to generate an answer at this time."
-TECHNICAL_ERROR_MESSAGE = (
-    "I'm unable to process your question due to a technical issue. Please try again."
-)
 
 # Prompt templates
 SYSTEM_PROMPT_TEMPLATE = """Use the following pieces of context to answer the question at the end.
@@ -108,7 +109,8 @@ class QAWithContext(QA):
     Question-answering system with context-based retrieval.
 
     This implementation uses vector similarity search to find relevant context
-    and generates answers based on the retrieved documents.
+    and generates answers based on the retrieved documents. Supports multi-turn
+    conversations via LangGraph checkpointing.
     """
 
     def __init__(self, llm: BaseChatModel, emb: Embeddings) -> None:
@@ -121,6 +123,7 @@ class QAWithContext(QA):
         """
         super().__init__(llm, emb)
         self._qa_prompt = self._create_qa_prompt()
+        self._checkpointer = MemorySaver()
 
     def _create_qa_prompt(self) -> ChatPromptTemplate:
         """
@@ -132,7 +135,11 @@ class QAWithContext(QA):
         return ChatPromptTemplate.from_messages([("system", SYSTEM_PROMPT_TEMPLATE)])
 
     async def _setup_vectordb(
-        self, docs: Optional[List[Document]], vectordb: Optional[VectorStore]
+        self,
+        docs: Optional[List[Document]],
+        vectordb: Optional[VectorStore],
+        company_name: Optional[str] = None,
+        lang: Optional[str] = None,
     ) -> tuple[VectorStore, Optional[dict]]:
         """
         Set up the vector database for document retrieval.
@@ -140,6 +147,8 @@ class QAWithContext(QA):
         Args:
             docs: List of documents to add to the vector database
             vectordb: Existing vector database (optional)
+            company_name: Company name for persistent store scoping
+            lang: Language for persistent store scoping
 
         Returns:
             Tuple of (vectordb, filter) where filter is None if vectordb was created
@@ -151,10 +160,18 @@ class QAWithContext(QA):
             raise ValueError("At least one of 'docs' or 'vectordb' must be provided.")
 
         if not vectordb:
-            logger.info("Creating new InMemoryVectorStore")
-            vectordb = InMemoryVectorStore(self.emb)
-            if docs:
-                await vectordb.aadd_documents(docs)
+            # Use persistent Chroma store if company_name and lang are provided
+            if company_name and lang:
+                logger.info(f"Using persistent Chroma store for company: {company_name}, lang: {lang}")
+                vectordb = get_company_chroma_store(company_name, lang, self.emb)
+                if docs:
+                    await vectordb.aadd_documents(docs)
+            else:
+                # Fallback to Chroma without scoping (transient)
+                logger.info("Creating transient Chroma store")
+                vectordb = Chroma(embedding_function=self.emb)
+                if docs:
+                    await vectordb.aadd_documents(docs)
             return vectordb, None
 
         return vectordb, {}
@@ -181,19 +198,10 @@ class QAWithContext(QA):
 
         async def retrieve(state: QAState):
             try:
-                # Use async version of vector search if available
-                if hasattr(vectordb, "amax_marginal_relevance_search"):
-                    retrieved_docs = await vectordb.amax_marginal_relevance_search(
-                        state["question"], k=k, filter=filter_dict
-                    )
-                else:
-                    # Fallback to sync version in thread pool
-                    retrieved_docs = await asyncio.to_thread(
-                        vectordb.max_marginal_relevance_search,
-                        state["question"],
-                        k=k,
-                        filter=filter_dict
-                    )
+                # Use async vector search - all modern LangChain vector stores support this
+                retrieved_docs = await vectordb.amax_marginal_relevance_search(
+                    state["question"], k=k, filter=filter_dict
+                )
                 
                 # Extract unique URLs from document metadata
                 urls = []
@@ -246,12 +254,8 @@ class QAWithContext(QA):
                     }
                 )
 
-                # Use async version of LLM invoke if available
-                if hasattr(self.llm, "ainvoke"):
-                    response = await self.llm.ainvoke(messages)
-                else:
-                    # Fallback to sync version in thread pool
-                    response = await asyncio.to_thread(self.llm.invoke, messages)
+                # Use async LLM invoke - all modern LangChain LLMs support this
+                response = await self.llm.ainvoke(messages)
 
                 logger.info("Successfully generated response")
                 return {"answer": response.content}
@@ -269,6 +273,8 @@ class QAWithContext(QA):
         vectordb: Optional[VectorStore] = None,
         filter_dict: Optional[dict] = None,
         k: Optional[int] = None,
+        company_name: Optional[str] = None,
+        thread_id: Optional[str] = None,
     ) -> dict:
         """
         Process a query with context-based retrieval and generation.
@@ -280,6 +286,8 @@ class QAWithContext(QA):
             vectordb: Optional pre-existing vector database
             filter_dict: Optional filter for document retrieval
             k: Number of documents to retrieve (default: from config)
+            company_name: Optional company name for persistent vector store scoping
+            thread_id: Optional thread ID for conversation continuity via checkpointing
 
         Returns:
             Dictionary containing question, context, answer, and source URLs
@@ -293,24 +301,31 @@ class QAWithContext(QA):
             k = DEFAULT_RETRIEVAL_COUNT
 
         try:
-            # Set up vector database
-            vectordb, filter_dict = await self._setup_vectordb(docs, vectordb)
+            # Set up vector database with company scoping for persistence
+            vectordb, filter_dict = await self._setup_vectordb(
+                docs, vectordb, company_name, lang
+            )
 
             # Create workflow functions
             retrieve_func = self._create_retrieve_function(vectordb, filter_dict, k)
             generate_func = self._create_generate_function(lang)
 
-            # Build and compile the graph
+            # Build and compile the graph with checkpointer for conversation memory
             graph_builder = StateGraph(QAState)
             graph_builder.add_node("retrieve", retrieve_func)
             graph_builder.add_node("generate", generate_func)
             graph_builder.add_edge(START, "retrieve")
             graph_builder.add_edge("retrieve", "generate")
-            graph = graph_builder.compile()
+            graph_builder.add_edge("generate", END)
+            graph = graph_builder.compile(checkpointer=self._checkpointer)
+
+            # Configure thread for conversation continuity
+            config = {"configurable": {"thread_id": thread_id or "default"}}
 
             # Execute the workflow
             response = await graph.ainvoke(
-                {"question": query, "context": [], "answer": "", "urls": []}
+                {"question": query, "context": [], "answer": "", "urls": []},
+                config=config,
             )
             logger.info("Query processed successfully")
             return response
@@ -326,6 +341,75 @@ class QAWithContext(QA):
                 "answer": TECHNICAL_ERROR_MESSAGE,
                 "urls": [],
             }
+
+    async def query_stream(
+        self,
+        query: str,
+        lang: str,
+        docs: Optional[List[Document]] = None,
+        vectordb: Optional[VectorStore] = None,
+        filter_dict: Optional[dict] = None,
+        k: Optional[int] = None,
+        company_name: Optional[str] = None,
+        thread_id: Optional[str] = None,
+    ) -> AsyncGenerator[dict, None]:
+        """
+        Process a query with streaming response using native LangGraph astream().
+
+        Args:
+            query: The question to be answered
+            lang: The language for the response
+            docs: Optional list of documents to use as context
+            vectordb: Optional pre-existing vector database
+            filter_dict: Optional filter for document retrieval
+            k: Number of documents to retrieve (default: from config)
+            company_name: Optional company name for persistent vector store scoping
+            thread_id: Optional thread ID for conversation continuity
+
+        Yields:
+            Dictionaries containing node updates and final result
+        """
+        logger.info(f"Processing streaming query: {query[:50]}...")
+
+        if k is None:
+            k = DEFAULT_RETRIEVAL_COUNT
+
+        try:
+            # Set up vector database with company scoping for persistence
+            vectordb, filter_dict = await self._setup_vectordb(
+                docs, vectordb, company_name, lang
+            )
+
+            # Create workflow functions
+            retrieve_func = self._create_retrieve_function(vectordb, filter_dict, k)
+            generate_func = self._create_generate_function(lang)
+
+            # Build and compile the graph with checkpointer
+            graph_builder = StateGraph(QAState)
+            graph_builder.add_node("retrieve", retrieve_func)
+            graph_builder.add_node("generate", generate_func)
+            graph_builder.add_edge(START, "retrieve")
+            graph_builder.add_edge("retrieve", "generate")
+            graph_builder.add_edge("generate", END)
+            graph = graph_builder.compile(checkpointer=self._checkpointer)
+
+            # Configure thread for conversation continuity
+            config = {"configurable": {"thread_id": thread_id or "default"}}
+
+            # Stream node updates using native LangGraph streaming
+            async for event in graph.astream(
+                {"question": query, "context": [], "answer": "", "urls": []},
+                config=config,
+                stream_mode="updates",
+            ):
+                yield {"event": "update", "data": event}
+
+        except ValueError as e:
+            logger.error(f"Validation error in streaming: {e}")
+            yield {"event": "error", "data": {"message": str(e)}}
+        except Exception as e:
+            logger.error(f"Unexpected error during streaming query: {e}")
+            yield {"event": "error", "data": {"message": TECHNICAL_ERROR_MESSAGE}}
 
 
 if __name__ == "__main__":

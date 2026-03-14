@@ -5,6 +5,23 @@ This module (doc_store.py) provides abstract and concrete implementations for
 document storage functionality, including content and tag management with MongoDB backend.
 """
 
+__all__ = [
+    "DocStore",
+    "MongoStore",
+    "RedisStore",
+    "MongoConnectionManager",
+    "_mongo_manager",
+    # Date utilities
+    "get_date_threshold",
+    "is_date_within_threshold",
+    "is_date_older_than_threshold",
+    # Validation utilities
+    "validate_content_fields",
+    "validate_tag_fields",
+    "normalize_fields",
+    "normalize_url",
+]
+
 import json
 import logging
 import os
@@ -13,7 +30,7 @@ import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import redis
 from pymongo import MongoClient
@@ -23,6 +40,125 @@ from .logging_config import get_logger
 
 # Initialize logger using shared configuration
 logger = get_logger(__name__)
+
+
+# =============================================================================
+# DATE UTILITY FUNCTIONS
+# =============================================================================
+
+
+def get_date_threshold(days: int) -> Optional[datetime]:
+    """
+    Calculate the date threshold for filtering data.
+
+    Args:
+        days: Number of days to look back. If 0 or negative, returns None.
+
+    Returns:
+        Datetime threshold if days > 0, otherwise None.
+    """
+    if days <= 0:
+        return None
+    return datetime.combine(datetime.today(), datetime.min.time()) - timedelta(days=days)
+
+
+def is_date_within_threshold(
+    date_to_check: Optional[datetime], threshold: Optional[datetime]
+) -> bool:
+    """
+    Check if a date is within the specified threshold.
+
+    Args:
+        date_to_check: The date to check. If None, returns True (considered within).
+        threshold: The threshold date. If None, returns True (no filtering).
+
+    Returns:
+        True if the date is within the threshold or if no filtering applies.
+    """
+    if threshold is None:
+        return True
+    if date_to_check is None:
+        return True
+    return date_to_check >= threshold
+
+
+def is_date_older_than_threshold(
+    date_to_check: Optional[datetime], threshold: Optional[datetime]
+) -> bool:
+    """
+    Check if a date is older than the specified threshold.
+
+    Args:
+        date_to_check: The date to check. If None, returns True (considered old).
+        threshold: The threshold date. If None, returns False (no filtering).
+
+    Returns:
+        True if the date is older than the threshold.
+    """
+    if threshold is None:
+        return False
+    if date_to_check is None:
+        return True
+    return date_to_check < threshold
+
+
+# =============================================================================
+# VALIDATION UTILITY FUNCTIONS
+# =============================================================================
+
+
+def validate_content_fields(doc: dict) -> bool:
+    """
+    Validate that a content document has required fields.
+
+    Args:
+        doc: Document dictionary to validate
+
+    Returns:
+        True if valid, False otherwise
+    """
+    return "url" in doc and "text" in doc
+
+
+def validate_tag_fields(tag: dict) -> bool:
+    """
+    Validate that a tag dictionary has required fields.
+
+    Args:
+        tag: Tag dictionary to validate
+
+    Returns:
+        True if valid, False otherwise
+    """
+    required_fields = ["url", "crime_type", "probability"]
+    return all(field in tag for field in required_fields)
+
+
+def normalize_fields(company_name: str, lang: str) -> Tuple[str, str]:
+    """
+    Normalize company name and language for consistent storage/queries.
+
+    Args:
+        company_name: Company name to normalize
+        lang: Language code to normalize
+
+    Returns:
+        Tuple of (normalized_company, normalized_lang)
+    """
+    return company_name.lower(), lang.lower()
+
+
+def normalize_url(url: str) -> str:
+    """
+    Normalize URL for consistent storage/queries.
+
+    Args:
+        url: URL to normalize
+
+    Returns:
+        Normalized URL (lowercase)
+    """
+    return url.lower()
 
 
 class MongoConnectionManager:
@@ -217,6 +353,29 @@ class MongoStore(DocStore):
             logger.error(f"Unexpected error accessing collection {collection}: {e}")
             raise
 
+    def _ensure_indexes(self, collection) -> None:
+        """Ensure required indexes exist for optimal query performance.
+
+        Args:
+            collection: MongoDB collection object
+        """
+        try:
+            # Compound index for content queries
+            collection.create_index(
+                [("company_name_lower", 1), ("lang", 1), ("url", 1)],
+                name="company_lang_url_idx",
+                background=True,
+            )
+            # Index for date-based queries
+            collection.create_index(
+                [("modified_date", -1)],
+                name="modified_date_idx",
+                background=True,
+            )
+            logger.debug(f"Indexes ensured for collection")
+        except Exception as e:
+            logger.warning(f"Could not create indexes: {e}")
+
     def load_contents(
         self,
         urls: List[str],
@@ -245,25 +404,23 @@ class MongoStore(DocStore):
 
         try:
             with self._get_collection(collection_name) as col:
-                # Build query conditions with case-insensitive matching
+                # Ensure indexes exist
+                self._ensure_indexes(col)
+
+                # Build query with normalized fields for index usage
+                company_lower, lang_lower = normalize_fields(self.company_name, self.lang)
+                urls_lower = [normalize_url(url) for url in urls]
+
                 query = {
-                    "company_name": {
-                        "$regex": f"^{re.escape(self.company_name)}$",
-                        "$options": "i",
-                    },
-                    "lang": {"$regex": f"^{re.escape(self.lang)}$", "$options": "i"},
-                    "$or": [
-                        {"url": {"$regex": f"^{re.escape(url)}$", "$options": "i"}}
-                        for url in urls
-                    ],
+                    "company_name_lower": company_lower,
+                    "lang": lang_lower,
+                    "url_lower": {"$in": urls_lower},
                 }
 
                 # Add date filter if days is specified
-                if days > 0:
-                    within_date = datetime.combine(
-                        datetime.today(), datetime.min.time()
-                    ) - timedelta(days=days)
-                    query["modified_date"] = {"$gte": within_date}
+                date_threshold = get_date_threshold(days)
+                if date_threshold:
+                    query["modified_date"] = {"$gte": date_threshold}
 
                 cursor = col.find(query, {"url": 1, "text": 1, "_id": 0})
                 result = list(cursor)
@@ -302,46 +459,39 @@ class MongoStore(DocStore):
 
         try:
             with self._get_collection(collection_name) as col:
+                # Ensure indexes exist
+                self._ensure_indexes(col)
+
+                company_lower, lang_lower = normalize_fields(self.company_name, self.lang)
                 updated_count = 0
                 skipped_count = 0
 
                 for doc in contents:
-                    if "url" not in doc or "text" not in doc:
+                    if not validate_content_fields(doc):
                         logger.warning(
                             f"Skipping document with missing required fields: {doc}"
                         )
                         continue
 
+                    url_lower = normalize_url(doc["url"])
+
                     # Check if we should update based on days parameter
                     should_update = True
                     if days > 0:
-                        # Check if document exists and its age
+                        # Check if document exists and its age using normalized query
                         existing_doc = col.find_one(
                             {
-                                "company_name": {
-                                    "$regex": f"^{re.escape(self.company_name)}$",
-                                    "$options": "i",
-                                },
-                                "lang": {
-                                    "$regex": f"^{re.escape(self.lang)}$",
-                                    "$options": "i",
-                                },
-                                "url": {
-                                    "$regex": f"^{re.escape(doc['url'])}$",
-                                    "$options": "i",
-                                },
+                                "company_name_lower": company_lower,
+                                "lang": lang_lower,
+                                "url_lower": url_lower,
                             },
                             {"modified_date": 1},
                         )
 
                         if existing_doc and "modified_date" in existing_doc:
-                            # Calculate the age of the existing document
-                            age_threshold = datetime.combine(
-                                datetime.today(), datetime.min.time()
-                            ) - timedelta(days=days)
-
+                            age_threshold = get_date_threshold(days)
                             # Only update if the document is older than the threshold
-                            if existing_doc["modified_date"] > age_threshold:
+                            if not is_date_older_than_threshold(existing_doc["modified_date"], age_threshold):
                                 should_update = False
                                 skipped_count += 1
                                 logger.info(
@@ -351,25 +501,18 @@ class MongoStore(DocStore):
                     if should_update:
                         col.update_one(
                             {
-                                "company_name": {
-                                    "$regex": f"^{re.escape(self.company_name)}$",
-                                    "$options": "i",
-                                },
-                                "lang": {
-                                    "$regex": f"^{re.escape(self.lang)}$",
-                                    "$options": "i",
-                                },
-                                "url": {
-                                    "$regex": f"^{re.escape(doc['url'])}$",
-                                    "$options": "i",
-                                },
+                                "company_name_lower": company_lower,
+                                "lang": lang_lower,
+                                "url_lower": url_lower,
                             },
                             {
                                 "$currentDate": {"modified_date": {"$type": "date"}},
                                 "$set": {
                                     "company_name": self.company_name,
-                                    "lang": self.lang,
+                                    "company_name_lower": company_lower,
+                                    "lang": lang_lower,
                                     "url": doc["url"],
+                                    "url_lower": url_lower,
                                     "text": doc["text"],
                                 },
                             },
@@ -417,27 +560,25 @@ class MongoStore(DocStore):
 
         try:
             with self._get_collection(collection_name) as col:
-                # Build query conditions with case-insensitive matching
+                # Ensure indexes exist
+                self._ensure_indexes(col)
+
+                # Build query with normalized fields for index usage
+                company_lower, lang_lower = normalize_fields(self.company_name, self.lang)
+                urls_lower = [normalize_url(url) for url in urls]
+
                 query = {
-                    "company_name": {
-                        "$regex": f"^{re.escape(self.company_name)}$",
-                        "$options": "i",
-                    },
-                    "lang": {"$regex": f"^{re.escape(self.lang)}$", "$options": "i"},
+                    "company_name_lower": company_lower,
+                    "lang": lang_lower,
                     "method": method,
                     "llm_name": llm_name,
-                    "$or": [
-                        {"url": {"$regex": f"^{re.escape(url)}$", "$options": "i"}}
-                        for url in urls
-                    ],
+                    "url_lower": {"$in": urls_lower},
                 }
 
                 # Add date filter if days is specified
-                if days > 0:
-                    within_date = datetime.combine(
-                        datetime.today(), datetime.min.time()
-                    ) - timedelta(days=days)
-                    query["modified_date"] = {"$gte": within_date}
+                date_threshold = get_date_threshold(days)
+                if date_threshold:
+                    query["modified_date"] = {"$gte": date_threshold}
 
                 cursor = col.find(
                     query, {"url": 1, "crime_type": 1, "probability": 1, "description": 1, "_id": 0}
@@ -482,39 +623,34 @@ class MongoStore(DocStore):
 
         try:
             with self._get_collection(collection_name) as col:
+                # Ensure indexes exist
+                self._ensure_indexes(col)
+
+                company_lower, lang_lower = normalize_fields(self.company_name, self.lang)
+
                 for item in tags:
-                    required_fields = ["url", "crime_type", "probability"]
-                    if not all(field in item for field in required_fields):
+                    if not validate_tag_fields(item):
                         logger.warning(
                             f"Skipping item with missing required fields: {item}"
                         )
                         continue
 
-                    # Build update query with case-insensitive matching
+                    url_lower = normalize_url(item["url"])
+
+                    # Build filter query with normalized fields
                     filter_query = {
-                        "company_name": {
-                            "$regex": f"^{re.escape(self.company_name)}$",
-                            "$options": "i",
-                        },
-                        "lang": {
-                            "$regex": f"^{re.escape(self.lang)}$",
-                            "$options": "i",
-                        },
+                        "company_name_lower": company_lower,
+                        "lang": lang_lower,
                         "method": method,
                         "llm_name": llm_name,
-                        "url": {
-                            "$regex": f"^{re.escape(item['url'])}$",
-                            "$options": "i",
-                        },
+                        "url_lower": url_lower,
                     }
 
                     # If days is specified, add date filter to only update older records
-                    if days > 0:
-                        older_than_date = datetime.combine(
-                            datetime.today(), datetime.min.time()
-                        ) - timedelta(days=days)
+                    date_threshold = get_date_threshold(days)
+                    if date_threshold:
                         filter_query["$or"] = [
-                            {"modified_date": {"$lt": older_than_date}},
+                            {"modified_date": {"$lt": date_threshold}},
                             {"modified_date": {"$exists": False}},
                         ]
 
@@ -523,10 +659,12 @@ class MongoStore(DocStore):
                         {
                             "$set": {
                                 "company_name": self.company_name,
-                                "lang": self.lang,
+                                "company_name_lower": company_lower,
+                                "lang": lang_lower,
                                 "method": method,
                                 "llm_name": llm_name,
                                 "url": item["url"],
+                                "url_lower": url_lower,
                                 "crime_type": item["crime_type"],
                                 "probability": item["probability"],
                                 "description": item.get("description", "N/A"),
@@ -654,11 +792,11 @@ class RedisStore(DocStore):
                     content = json.loads(content_data)
                     
                     # Apply days filter if specified
-                    if days > 0 and "modified_date" in content:
+                    date_threshold = get_date_threshold(days)
+                    if date_threshold and "modified_date" in content:
                         try:
                             modified_date = datetime.fromisoformat(content["modified_date"])
-                            age_threshold = current_time - timedelta(days=days)
-                            if modified_date < age_threshold:
+                            if modified_date < date_threshold:
                                 continue  # Skip old content
                         except (ValueError, TypeError):
                             # If date parsing fails, include the content
@@ -700,7 +838,7 @@ class RedisStore(DocStore):
             # Filter valid documents
             valid_docs = [
                 doc for doc in contents
-                if "url" in doc and "text" in doc
+                if validate_content_fields(doc)
             ]
             if len(valid_docs) < len(contents):
                 logger.warning(f"Skipped {len(contents) - len(valid_docs)} documents with missing required fields")
@@ -717,7 +855,7 @@ class RedisStore(DocStore):
                     check_pipe.get(key)
                 existing_results = check_pipe.execute()
 
-                age_threshold = current_time - timedelta(days=days)
+                age_threshold = get_date_threshold(days)
                 for doc, key, existing_data in zip(valid_docs, keys_to_check, existing_results):
                     if existing_data:
                         try:
@@ -728,7 +866,7 @@ class RedisStore(DocStore):
                             existing_content = json.loads(existing_data)
                             if "modified_date" in existing_content:
                                 modified_date = datetime.fromisoformat(existing_content["modified_date"])
-                                if modified_date > age_threshold:
+                                if not is_date_older_than_threshold(modified_date, age_threshold):
                                     existing_data_map[doc["url"]] = True
                                     skipped_count += 1
                                     logger.info(
@@ -801,11 +939,11 @@ class RedisStore(DocStore):
                     tag = json.loads(tag_data)
                     
                     # Apply days filter if specified
-                    if days > 0 and "modified_date" in tag:
+                    date_threshold = get_date_threshold(days)
+                    if date_threshold and "modified_date" in tag:
                         try:
                             modified_date = datetime.fromisoformat(tag["modified_date"])
-                            age_threshold = current_time - timedelta(days=days)
-                            if modified_date < age_threshold:
+                            if modified_date < date_threshold:
                                 continue  # Skip old tags
                         except (ValueError, TypeError):
                             # If date parsing fails, include the tag
@@ -854,10 +992,9 @@ class RedisStore(DocStore):
             skipped_count = 0
 
             # Filter valid tags
-            required_fields = ["url", "crime_type", "probability"]
             valid_tags = [
                 item for item in tags
-                if all(field in item for field in required_fields)
+                if validate_tag_fields(item)
             ]
             if len(valid_tags) < len(tags):
                 logger.warning(f"Skipped {len(tags) - len(valid_tags)} items with missing required fields")
@@ -874,7 +1011,7 @@ class RedisStore(DocStore):
                     check_pipe.get(key)
                 existing_results = check_pipe.execute()
 
-                age_threshold = current_time - timedelta(days=days)
+                age_threshold = get_date_threshold(days)
                 for item, key, existing_data in zip(valid_tags, keys_to_check, existing_results):
                     if existing_data:
                         try:
@@ -885,7 +1022,7 @@ class RedisStore(DocStore):
                             existing_tag = json.loads(existing_data)
                             if "modified_date" in existing_tag:
                                 modified_date = datetime.fromisoformat(existing_tag["modified_date"])
-                                if modified_date > age_threshold:
+                                if not is_date_older_than_threshold(modified_date, age_threshold):
                                     existing_data_map[item["url"]] = True
                                     skipped_count += 1
                                     logger.info(

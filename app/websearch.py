@@ -5,13 +5,22 @@ This module provides abstract and concrete implementations for web search
 functionality using various search providers like Google Serper and Tavily.
 """
 
+__all__ = [
+    "SearchResult",
+    "WebSearch",
+    "GoogleSerperNews",
+    "TavilySearch",
+    "LANGUAGE_MAPPINGS",
+    "LOCATION_MAPPINGS",
+]
+
 import os
 from abc import ABC, abstractmethod
 from typing import List, Optional, TypedDict
 
+import httpx
 from dotenv import load_dotenv
 from langchain_community.utilities.google_serper import GoogleSerperAPIWrapper
-from tavily import TavilyClient
 
 from .logging_config import get_logger
 
@@ -112,6 +121,26 @@ class WebSearch(ABC):
         """
         raise NotImplementedError
 
+    async def asearch(
+        self, keywords: str, max_results: int, **kwargs
+    ) -> Optional[List[SearchResult]]:
+        """
+        Async version of search method.
+
+        Default implementation calls the sync version in a thread pool.
+        Subclasses should override this for native async support.
+
+        Args:
+            keywords: Search keywords
+            max_results: Maximum number of results to return
+            **kwargs: Additional search parameters
+
+        Returns:
+            List of search results or None if search fails
+        """
+        import asyncio
+        return await asyncio.to_thread(self.search, keywords, max_results, **kwargs)
+
 
 class GoogleSerperNews(WebSearch):
     """
@@ -196,6 +225,8 @@ class TavilySearch(WebSearch):
     Note: Tavily does not support explicit language or location filtering.
     """
 
+    TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+
     def __init__(self, lang: str, location: Optional[str] = None) -> None:
         """
         Initialize Tavily search.
@@ -210,7 +241,33 @@ class TavilySearch(WebSearch):
         self, keywords: str, max_results: int = 10, **kwargs
     ) -> Optional[List[SearchResult]]:
         """
-        Search using Tavily Search API.
+        Search using Tavily Search API (synchronous wrapper).
+
+        Note: In async contexts (like FastAPI), prefer using asearch() directly.
+        This method uses asyncio.run() which creates a new event loop.
+
+        Args:
+            keywords: Search keywords
+            max_results: Maximum number of results to return
+            **kwargs: Additional search parameters
+
+        Returns:
+            List of search results or None if search fails
+
+        Raises:
+            RuntimeError: If called from an async context (use asearch() instead)
+        """
+        import asyncio
+
+        # asyncio.run() handles event loop creation and cleanup properly
+        # It will raise RuntimeError if called from an async context
+        return asyncio.run(self.asearch(keywords, max_results, **kwargs))
+
+    async def asearch(
+        self, keywords: str, max_results: int = 10, **kwargs
+    ) -> Optional[List[SearchResult]]:
+        """
+        Search using Tavily Search API (async native).
 
         Args:
             keywords: Search keywords
@@ -229,15 +286,24 @@ class TavilySearch(WebSearch):
 
             logger.info(f"Searching Tavily with keywords: {keywords}")
 
-            client = TavilyClient(api_key=tavily_key)
-            response = client.search(
-                query=keywords,
-                max_results=max_results,
-                topic="general",  # Use general search for better relevance
-                search_depth="advanced",  # More comprehensive search
-            )
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    self.TAVILY_SEARCH_URL,
+                    json={
+                        "query": keywords,
+                        "max_results": max_results,
+                        "topic": "general",
+                        "search_depth": "advanced",
+                    },
+                    headers={
+                        "Authorization": f"Bearer {tavily_key}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
 
-            results = response.get("results", [])
+            results = data.get("results", [])
             if results:
                 # Transform to our SearchResult format
                 search_results = []
@@ -259,6 +325,9 @@ class TavilySearch(WebSearch):
 
         except ValueError as e:
             logger.error(f"Tavily search configuration error: {str(e)}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Tavily API error: {e.response.status_code} - {e.response.text}")
             return None
         except Exception as e:
             logger.error(f"Tavily search failed: {str(e)}")
