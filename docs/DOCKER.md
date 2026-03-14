@@ -58,7 +58,13 @@ nano .env
 - **Port**: 8280
 - **Description**: Main FastAPI application serving the adverse news screening interface
 - **Health Check**: HTTP GET request to `/api/health` endpoint
-- **Features**: Web search, content crawling, tagging, summarization, Q&A
+- **Features**:
+  - Web search (Google Serper, Tavily)
+  - Content crawling (Apify, Tavily Extract)
+  - Financial crime tagging with RAG
+  - Document summarization
+  - Q&A with Traditional RAG or GraphRAG
+  - Multi-LLM support (Azure OpenAI, DeepSeek, Qwen)
 
 ### mongodb
 - **Port**: 27017
@@ -71,6 +77,11 @@ nano .env
 - **Port**: 6379
 - **Description**: Redis for caching and fast document storage
 - **Persistence**: Data stored in Docker volume `redis_data`
+
+### Chroma Vector Store
+- **Description**: Persistent vector embeddings for RAG and GraphRAG
+- **Storage**: Local directory `./chroma_db` (configurable via `CHROMA_PERSIST_DIR`)
+- **Collections**: Scoped by company name and language (e.g., `news_company_en`)
 
 ## 📁 Docker Files Overview
 

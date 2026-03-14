@@ -15,11 +15,15 @@ news_scr/
 ├── app/                         # Main application code
 │   ├── __init__.py
 │   ├── main.py                  # FastAPI server (main entry point)
+│   ├── config.py                # Centralized configuration constants
 │   ├── crawler.py               # Web crawling functionality
 │   ├── doc_store.py             # MongoDB/Redis document storage
-│   ├── query.py                 # Q&A with context
+│   ├── graph_rag.py             # GraphRAG for entity-based Q&A
+│   ├── logging_config.py        # Shared logging configuration
+│   ├── query.py                 # Q&A with context (RAG)
 │   ├── summarization.py         # Document summarization
 │   ├── tagging.py               # FC tagging for crime classification
+│   ├── vector_store.py          # Chroma vector store manager
 │   └── websearch.py             # Web search engines integration
 │
 ├── static/                      # Static web assets
@@ -114,12 +118,15 @@ python -m app.main
 ## Features
 
 - **Web Search**: Search for news articles using Google or Tavily
-- **Content Crawling**: Extract content from news URLs
-- **FC Tagging**: Classify content for crime types using LLMs
-- **Summarization**: Generate summaries of news articles
-- **Q&A**: Ask questions about the content using RAG
+- **Content Crawling**: Extract content from news URLs using Apify or Tavily Extract
+- **FC Tagging**: Classify content for crime types using LLMs with RAG-based analysis
+- **Summarization**: Generate summaries of news articles (Map-Reduce or Refinement)
+- **Q&A**: Ask questions about the content using RAG or GraphRAG
+  - **Traditional RAG**: Fast vector similarity search for relevant content
+  - **GraphRAG**: Extracts entities and relationships for deeper context understanding
 - **Multi-LLM Support**: Azure OpenAI, DeepSeek, Qwen/Tongyi
 - **Dual Storage**: MongoDB for content and metadata, Redis for caching
+- **Vector Store**: Chroma for persistent embedding storage
 - **Session Management**: Browser-based sessions for data persistence
 
 ## Configuration
@@ -168,6 +175,52 @@ python config/ssl/generate_ssl.py
 
 ## Development
 
+### Architecture Overview
+
+The application follows a modular architecture with clear separation of concerns:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         FastAPI Application                      │
+│                          (app/main.py)                          │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐ │
+│  │ Search   │  │ Crawler  │  │ Tagging  │  │  Q&A / GraphRAG  │ │
+│  │(websearch)│  │(crawler) │  │(tagging) │  │(query/graph_rag) │ │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────────┬─────────┘ │
+│       │             │             │                  │          │
+│       v             v             v                  v          │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                    Storage Layer                         │   │
+│  │  ┌──────────┐  ┌──────────┐  ┌───────────────────────┐   │   │
+│  │  │ MongoDB  │  │  Redis   │  │ Chroma Vector Store   │   │   │
+│  │  │(doc_store)│  │(doc_store)│  │  (vector_store)      │   │   │
+│  │  └──────────┘  └──────────┘  └───────────────────────┘   │   │
+│  └──────────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                  Configuration (config.py)               │   │
+│  │  - Constants, type aliases, feature flags               │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Module Documentation
+
+| Module | Description |
+|--------|-------------|
+| `config.py` | Centralized configuration constants and type aliases |
+| `main.py` | FastAPI application, API endpoints, request/response models |
+| `crawler.py` | Web crawling implementations (Apify, Tavily Extract) |
+| `doc_store.py` | Document storage (MongoDB, Redis) with validation utilities |
+| `query.py` | RAG-based Q&A with LangGraph workflow |
+| `graph_rag.py` | GraphRAG for entity extraction and relationship-aware Q&A |
+| `tagging.py` | Financial crime tagging with LLM-based classification |
+| `summarization.py` | Document summarization (Map-Reduce, Refinement) |
+| `vector_store.py` | Singleton Chroma vector store manager |
+| `websearch.py` | Web search integration (Google Serper, Tavily Search) |
+| `logging_config.py` | Shared logging configuration |
+
 ### Project Structure Rationale
 
 - **`app/`**: Contains all Python application code with relative imports
@@ -214,7 +267,10 @@ Build and push to a container registry:
 - `POST /api/crawler` - Crawl content from URLs
 - `POST /api/tagging` - Perform FC tagging
 - `POST /api/summary` - Summarize content
-- `POST /api/qa` - Ask questions about content
+- `POST /api/summary/stream` - Summarize content with streaming progress
+- `POST /api/qa` - Ask questions about content (Traditional RAG)
+- `POST /api/qa/graph` - Ask questions about content (GraphRAG)
+- `POST /api/qa/stream` - Ask questions with streaming response
 - `GET /api/health` - Health check
 
 ## Troubleshooting
