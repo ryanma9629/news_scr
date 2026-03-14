@@ -612,13 +612,13 @@ function performTagging() {
         timeout: 180000,
         beforeSend: () => {
             UIState.toggleSubmitButton('#btn_tagging_submit', true);
-            AlertManager.showLoading('Processing FC tagging, please wait...');
+            AlertManager.showLoading('Processing Financial Crime Tagging, please wait...');
         }
     })
         .done(handleTaggingSuccess)
         .fail((xhr, status) => {
             AlertManager.hide();
-            const message = AjaxHelper.handleError(xhr, status, 'FC tagging');
+            const message = AjaxHelper.handleError(xhr, status, 'Financial Crime Tagging');
             AlertManager.showError('FC Tagging Failed', message);
         })
         .always(() => {
@@ -747,9 +747,9 @@ function handleTaggingSuccess(response) {
             tooltipElements.forEach(el => new bootstrap.Tooltip(el));
         });
 
-        AlertManager.show(`FC tagging completed: ${successCount} successful, ${failCount} failed`, 'success', false);
+        AlertManager.show(`Financial Crime Tagging completed: ${successCount} successful, ${failCount} failed`, 'success', false);
     } else {
-        AlertManager.show(response.message || 'FC tagging failed', 'danger');
+        AlertManager.show(response.message || 'Financial Crime Tagging failed', 'danger');
     }
 }
 
@@ -838,15 +838,19 @@ function performQA() {
     if (!Utils.validateResults() || !Utils.validateSession()) return;
 
     const qaQueryEl = Utils.getElement('#ta_qa_query');
+    const qaMethodEl = Utils.getElement('#qa_method');
     const companyNameEl = Utils.getElement('#company_name');
     const langEl = Utils.getElement('#lang');
     const llmModelEl = Utils.getElement('#llm_model');
-    
+
     const question = qaQueryEl?.value.trim() || '';
     if (!question) {
         AlertManager.show('Please enter a question', 'warning');
         return;
     }
+
+    const qaMethod = qaMethodEl?.value || 'rag';
+    const isGraphRAG = qaMethod === 'graph';
 
     const requestData = {
         question: question,
@@ -859,13 +863,19 @@ function performQA() {
 
     Utils.addCustomerId(requestData);
 
+    // Choose endpoint based on QA method
+    const endpoint = isGraphRAG ? '/api/qa/graph' : '/api/qa';
+    const loadingMsg = isGraphRAG
+        ? 'Processing Q&A with GraphRAG (extracting entities and relationships)...'
+        : 'Processing Q&A request, please wait...';
+
     AjaxHelper.makeRequest({
-        url: '/api/qa',
+        url: endpoint,
         data: requestData,
         timeout: 300000,
         beforeSend: () => {
             UIState.toggleSubmitButton('#btn_qa_submit', true);
-            AlertManager.showLoading('Processing Q&A request, please wait...');
+            AlertManager.showLoading(loadingMsg);
         }
     })
         .done(handleQASuccess)

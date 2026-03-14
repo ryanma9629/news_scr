@@ -481,6 +481,19 @@
                                             </small>
                                         </div>
                                     </div>
+                                    <div class="mb-3">
+                                        <label for="qa_method" class="form-label">QA Method:</label>
+                                        <select id="qa_method" class="form-select">
+                                            <option value="rag" selected>Traditional RAG (fast)</option>
+                                            <option value="graph">GraphRAG (entity relationships)</option>
+                                        </select>
+                                        <div class="form-text">
+                                            <small>
+                                                <strong>Traditional RAG:</strong> Fast vector similarity search for relevant content<br>
+                                                <strong>GraphRAG:</strong> Extracts entities and relationships for deeper context understanding
+                                            </small>
+                                        </div>
+                                    </div>
                                 </form>
                             </div>
                             <div class="modal-footer bg-light">
